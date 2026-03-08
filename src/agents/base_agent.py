@@ -40,9 +40,9 @@ logger = logging.getLogger("lumi.agents.base")
 
 APPROVED_PACKAGES: frozenset[str] = frozenset(
     {
-        # Standard library (always available)
+        # Standard library (safe subset)
         "math", "statistics", "collections", "itertools", "functools",
-        "json", "csv", "re", "os", "sys", "io", "pathlib", "datetime",
+        "json", "csv", "re", "io", "pathlib", "datetime",
         "textwrap", "copy", "operator", "string", "hashlib", "base64",
         "typing", "dataclasses", "enum", "abc", "contextlib", "warnings",
         # Scientific computing
@@ -103,7 +103,7 @@ class BaseAgent:
         system_prompt: str,
         model: ModelTier = ModelTier.SONNET,
         tools: list[dict] | None = None,
-        max_steps: int = 20,
+        max_steps: int = 8,
         division: str = "",
     ):
         self.name = name
@@ -148,8 +148,18 @@ class BaseAgent:
     # Main execution loop
     # ------------------------------------------------------------------
 
-    async def execute(self, task: Task) -> AgentResult:
-        """Execute a task using the agent's tools and LLM reasoning."""
+    async def execute(
+        self,
+        task: Task,
+        on_tool_call: Callable[..., Any] | None = None,
+    ) -> AgentResult:
+        """Execute a task using the agent's tools and LLM reasoning.
+
+        Args:
+            task: The task to execute.
+            on_tool_call: Optional async callback invoked after each tool call.
+                Signature: (tool_name, tool_input, result, duration_ms) -> None
+        """
         start_time = time.time()
         messages: list[dict[str, Any]] = [
             {"role": "user", "content": self._format_task(task)}
@@ -183,6 +193,7 @@ class BaseAgent:
                     tool_input: dict = block.input
                     tools_used.append(tool_name)
 
+                    tool_start = time.time()
                     try:
                         if tool_name == "execute_code":
                             result = await self._execute_code(
@@ -195,6 +206,15 @@ class BaseAgent:
                             result = {"error": f"Unknown tool: {tool_name}"}
                     except Exception as exc:
                         result = {"error": str(exc)}
+
+                    # Stream tool call event
+                    if on_tool_call is not None:
+                        tool_dur = int((time.time() - tool_start) * 1000)
+                        result_str = json.dumps(result) if isinstance(result, dict) else str(result)
+                        try:
+                            await on_tool_call(tool_name, tool_input, result_str[:500], tool_dur)
+                        except Exception:
+                            pass  # Don't let streaming errors break execution
 
                     tool_results.append(
                         {
@@ -281,7 +301,12 @@ class BaseAgent:
                 "3. Cite evidence sources where possible (prefix with 'Evidence:').",
                 "4. Note any caveats or alternative explanations.",
                 "",
-                "Use the available tools (including code execution) as needed. "
+                "EFFICIENCY: Be strategic with tool calls. Gather the 3-5 most "
+                "important evidence sources, then synthesize. Do NOT exhaustively "
+                "search every possible database — focus on the highest-value "
+                "queries for this specific task. Stop once you have sufficient "
+                "evidence to make a well-supported conclusion.",
+                "",
                 "When you have completed your analysis, provide a final summary "
                 "of all findings.",
             ]
@@ -404,9 +429,20 @@ class BaseAgent:
         """Return the set of top-level package names imported in *code*
         that are NOT in :data:`APPROVED_PACKAGES`.
 
-        Standard-library modules that are always available are treated
-        as approved.
+        Also rejects dynamic import mechanisms that bypass static analysis.
         """
+        # Block dynamic import / code execution patterns
+        dangerous_patterns = re.compile(
+            r"__import__\s*\(|"
+            r"importlib\s*\.|"
+            r"\bexec\s*\(|"
+            r"\beval\s*\(|"
+            r"\bcompile\s*\(",
+            re.MULTILINE,
+        )
+        if dangerous_patterns.search(code):
+            return {"__dynamic_import__"}
+
         violations: set[str] = set()
         # Match 'import foo', 'import foo.bar', 'from foo import ...', 'from foo.bar import ...'
         import_re = re.compile(

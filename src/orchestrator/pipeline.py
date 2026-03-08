@@ -13,6 +13,7 @@ import time
 from typing import Optional
 
 from src.divisions.base_lead import DivisionLead
+from src.orchestrator.stream_events import PipelineEventEmitter, StreamCallback
 from src.utils.cost_tracker import cost_tracker
 from src.utils.types import FinalReport
 
@@ -39,6 +40,7 @@ async def run_yohas_pipeline(
     world_model_path: str = _DEFAULT_WM_PATH,
     cost_ceiling: float = 100.0,
     enable_world_model: bool = True,
+    on_event: StreamCallback | None = None,
 ) -> FinalReport:
     """Execute the full 9-phase YOHAS orchestration pipeline.
 
@@ -141,10 +143,13 @@ async def run_yohas_pipeline(
                 from src.factory import create_minimal_system
                 divisions = create_minimal_system()
 
+        emitter = PipelineEventEmitter(on_event)
+
         cso = CSOOrchestrator(
             divisions=divisions,
             tool_catalog=tool_catalog,
             sublab_hint=sublab_hint,
+            emitter=emitter,
         )
         report = await cso.run(user_query)
 

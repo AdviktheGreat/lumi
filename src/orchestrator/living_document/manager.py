@@ -92,8 +92,9 @@ class DocumentManager:
         if data_availability:
             content_parts.append(f"**Data Availability:** {data_availability}")
         if recommended:
+            div_names = [d["name"] if isinstance(d, dict) else str(d) for d in recommended]
             content_parts.append(
-                f"**Recommended Divisions:** {', '.join(recommended)}"
+                f"**Recommended Divisions:** {', '.join(div_names)}"
             )
 
         bg_update = "\n\n".join(content_parts) if content_parts else ""

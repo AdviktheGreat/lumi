@@ -19,7 +19,6 @@ from typing import Any, Optional
 from src.utils.cost_tracker import cost_tracker
 from src.utils.llm import LLMClient, ModelTier
 from src.utils.types import (
-    AgentSpec,
     BiosecurityAssessment,
     BiosecurityCategory,
     Claim,
@@ -39,6 +38,7 @@ from src.utils.types import (
 from src.divisions.base_lead import DivisionLead
 from src.orchestrator.hitl.router import ConfidenceRouter, HITLConfig, HITLResult
 from src.orchestrator.living_document.manager import DocumentManager
+from src.orchestrator.stream_events import PipelineEventEmitter
 
 logger = logging.getLogger("lumi.orchestrator.cso")
 
@@ -163,6 +163,7 @@ class CSOOrchestrator:
         hitl_config: HITLConfig | None = None,
         tool_catalog: list[dict] | None = None,
         sublab_hint: str | None = None,
+        emitter: PipelineEventEmitter | None = None,
     ) -> None:
         """Initialise the CSO.
 
@@ -186,6 +187,7 @@ class CSOOrchestrator:
         self.hitl_router = ConfidenceRouter(config=self.hitl_config)
         self.doc_manager: DocumentManager | None = None
         self.hitl_result: HITLResult | None = None
+        self.emitter = emitter or PipelineEventEmitter()
 
     # ------------------------------------------------------------------
     # Main entry point
@@ -210,8 +212,14 @@ class CSOOrchestrator:
 
             # Phase 1: Intake
             logger.info("[CSO] Phase 1 — Intake")
+            await self.emitter.trace_start("cso_orchestrator", "Orchestration", "Analyzing research query...")
             research_brief = await self._intake(user_query)
             await self.doc_manager.on_intake(research_brief)
+            await self.emitter.trace_complete(
+                "cso_orchestrator", "Orchestration",
+                f"Query parsed. Type: {research_brief.get('query_type', 'unknown')}. Scope: {research_brief.get('scope', '')[:200]}",
+                duration_ms=int((time.time() - start_time) * 1000),
+            )
 
             # Phase 2: Intelligence (imported lazily to avoid circular deps)
             logger.info("[CSO] Phase 2 — Intelligence briefing")
@@ -226,6 +234,7 @@ class CSOOrchestrator:
 
             # Phase 4: Biosecurity pre-screen
             logger.info("[CSO] Phase 4 — Biosecurity pre-screen")
+            await self.emitter.trace_start("biosecurity_officer", "Biosecurity", "Screening for dual-use risk...")
             from src.orchestrator.biosecurity_officer import BiosecurityOfficer
             biosec = BiosecurityOfficer()
             biosec_assessment = BiosecurityAssessment(
@@ -235,6 +244,12 @@ class CSOOrchestrator:
                 audit_id=f"audit_{self._query_id}",
             )
             biosec_result = await biosec.evaluate(biosec_assessment)
+            biosec_status = "PASSED (GREEN)" if not biosec_result.get("veto") else "VETOED (RED)"
+            await self.emitter.trace_complete(
+                "biosecurity_officer", "Biosecurity",
+                f"Pre-screen {biosec_status}.",
+                duration_ms=int((time.time() - start_time) * 1000),
+            )
             if biosec_result.get("veto", False):
                 logger.error("[CSO] BIOSECURITY VETO — aborting pipeline")
                 return self._vetoed_report(user_query, biosec_result, start_time)
@@ -243,7 +258,14 @@ class CSOOrchestrator:
             if self.tool_catalog is not None:
                 logger.info("[CSO] Phase 5 — Dynamic SubLab mode (%d tools in catalog)", len(self.tool_catalog))
                 logger.info("[CSO] Phase 5a — Planning SubLab team")
+                await self.emitter.trace_start("sublab_planner", "Orchestration", "Planning dynamic agent team...")
                 sublab_plan = await self._plan_sublab(research_brief, intel_brief)
+                agents_summary = ", ".join(a.name for a in sublab_plan.agents)
+                groups_summary = f"{len(sublab_plan.execution_groups)} execution groups"
+                await self.emitter.trace_complete(
+                    "sublab_planner", "Orchestration",
+                    f"Team composed: {len(sublab_plan.agents)} agents in {groups_summary}. Agents: {agents_summary}",
+                )
                 logger.info("[CSO] Phase 5b — Executing SubLab (%d agents)", len(sublab_plan.agents))
                 analytical_reports = await self._execute_sublab(sublab_plan, plan)
                 logger.info("[CSO] Phase 5 — SubLab complete: %d reports", len(analytical_reports))
@@ -260,10 +282,15 @@ class CSOOrchestrator:
 
             # Phase 7: Review
             logger.info("[CSO] Phase 7 — Review")
+            await self.emitter.trace_start("review_panel", "Orchestration", "Running adversarial review...")
             from src.orchestrator.review_panel import ReviewPanel
             reviewer = ReviewPanel()
             review_verdict = await reviewer.review(analytical_reports, design_reports)
             await self.doc_manager.on_review(review_verdict)
+            await self.emitter.trace_complete(
+                "review_panel", "Orchestration",
+                f"Review verdict: {review_verdict.verdict.value}. {review_verdict.confidence_assessment[:200]}",
+            )
 
             # Phase 7.5: HITL — route low-confidence findings to humans
             logger.info("[CSO] Phase 7.5 — Human-in-the-loop routing")
@@ -272,6 +299,29 @@ class CSOOrchestrator:
                 query_id=self._query_id,
             )
             logger.info("[CSO] %s", self.hitl_result.summary())
+
+            # Emit HITL events for soft/hard flagged claims
+            for claim in self.hitl_result.caveated:
+                await self.emitter.hitl_flag(
+                    finding=claim.claim_text[:300],
+                    agent_id=claim.agent_id,
+                    confidence_score=claim.confidence.score,
+                    reason=f"Below soft threshold ({self.hitl_config.soft_threshold}). Auto-approved with caveat.",
+                )
+                await self.emitter.hitl_resolved(
+                    finding=claim.claim_text[:300],
+                    agent_id=claim.agent_id,
+                    confidence_score=claim.confidence.score,
+                    reason="Auto-approved with uncertainty label. Awaiting further evidence.",
+                    status="approved",
+                )
+            for claim in self.hitl_result.blocked:
+                await self.emitter.hitl_flag(
+                    finding=claim.claim_text[:300],
+                    agent_id=claim.agent_id,
+                    confidence_score=claim.confidence.score,
+                    reason=f"Below hard threshold ({self.hitl_config.hard_threshold}). Blocked pending review.",
+                )
 
             if self.hitl_result.has_blocked:
                 logger.warning(
@@ -323,6 +373,13 @@ class CSOOrchestrator:
             if self.hitl_result:
                 report.hitl_summary = self.hitl_result.summary()
 
+            # Stream final synthesis text
+            text = report.living_document_markdown or report.executive_summary
+            if text:
+                for i in range(0, len(text), 80):
+                    await self.emitter.text_delta(text[i:i + 80])
+                    await asyncio.sleep(0.02)
+
             logger.info(
                 "[CSO] Pipeline complete — query_id=%s  duration=%.1fs  cost=$%.4f",
                 self._query_id,
@@ -341,6 +398,8 @@ class CSOOrchestrator:
                 total_duration_seconds=time.time() - start_time,
                 total_cost=self.llm.get_cost()["total"],
             )
+        finally:
+            await self.emitter.done()
 
     # ------------------------------------------------------------------
     # Phase 1: Intake
@@ -353,7 +412,8 @@ class CSOOrchestrator:
         includes_design, includes_experimental, key_entities,
         priority_divisions.
         """
-        prompt = INTAKE_PROMPT_TEMPLATE.format(query=query)
+        safe_query = query.replace("{", "{{").replace("}", "}}")
+        prompt = INTAKE_PROMPT_TEMPLATE.format(query=safe_query)
 
         try:
             response = await self.llm.chat(
@@ -495,6 +555,7 @@ class CSOOrchestrator:
         return await executor.execute(
             sublab_plan=sublab_plan,
             task_description=plan.confirmed_scope or plan.user_query,
+            emitter=self.emitter,
         )
 
     # ------------------------------------------------------------------
