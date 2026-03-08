@@ -40,10 +40,8 @@ _DOMAIN_CONCURRENCY: dict[str, int] = {
 def _get_semaphore(url: str, max_concurrent: int | None = None) -> asyncio.Semaphore:
     """Return (or create) an asyncio.Semaphore for the domain in *url*."""
     domain = urlparse(url).netloc
-    if domain not in _domain_semaphores:
-        concurrency = max_concurrent or _DOMAIN_CONCURRENCY.get(domain, _DEFAULT_CONCURRENCY)
-        _domain_semaphores[domain] = asyncio.Semaphore(concurrency)
-    return _domain_semaphores[domain]
+    concurrency = max_concurrent or _DOMAIN_CONCURRENCY.get(domain, _DEFAULT_CONCURRENCY)
+    return _domain_semaphores.setdefault(domain, asyncio.Semaphore(concurrency))
 
 
 # ---------------------------------------------------------------------------
@@ -76,25 +74,25 @@ async def async_http_get(
     sem = _get_semaphore(url)
     last_exc: Exception | None = None
 
-    for attempt in range(1, max_retries + 1):
-        async with sem:
-            try:
-                async with httpx.AsyncClient(timeout=timeout) as client:
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        for attempt in range(1, max_retries + 1):
+            async with sem:
+                try:
                     resp = await client.get(url, params=params, headers=headers)
                     resp.raise_for_status()
                     try:
                         return resp.json()
                     except (json.JSONDecodeError, ValueError):
                         return {"text": resp.text}
-            except (httpx.HTTPStatusError, httpx.RequestError, httpx.TimeoutException) as exc:
-                last_exc = exc
-                if attempt < max_retries:
-                    wait = _compute_backoff(attempt, exc)
-                    logger.warning(
-                        "GET %s attempt %d/%d failed (%s). Retrying in %.1fs ...",
-                        url, attempt, max_retries, exc, wait,
-                    )
-                    await asyncio.sleep(wait)
+                except (httpx.HTTPStatusError, httpx.RequestError, httpx.TimeoutException) as exc:
+                    last_exc = exc
+                    if attempt < max_retries:
+                        wait = _compute_backoff(attempt, exc)
+                        logger.warning(
+                            "GET %s attempt %d/%d failed (%s). Retrying in %.1fs ...",
+                            url, attempt, max_retries, exc, wait,
+                        )
+                        await asyncio.sleep(wait)
 
     raise last_exc  # type: ignore[misc]
 
@@ -115,10 +113,10 @@ async def async_http_post(
     sem = _get_semaphore(url)
     last_exc: Exception | None = None
 
-    for attempt in range(1, max_retries + 1):
-        async with sem:
-            try:
-                async with httpx.AsyncClient(timeout=timeout) as client:
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        for attempt in range(1, max_retries + 1):
+            async with sem:
+                try:
                     if isinstance(data, dict):
                         resp = await client.post(url, json=data, headers=headers)
                     else:
@@ -128,15 +126,15 @@ async def async_http_post(
                         return resp.json()
                     except (json.JSONDecodeError, ValueError):
                         return {"text": resp.text}
-            except (httpx.HTTPStatusError, httpx.RequestError, httpx.TimeoutException) as exc:
-                last_exc = exc
-                if attempt < max_retries:
-                    wait = _compute_backoff(attempt, exc)
-                    logger.warning(
-                        "POST %s attempt %d/%d failed (%s). Retrying in %.1fs ...",
-                        url, attempt, max_retries, exc, wait,
-                    )
-                    await asyncio.sleep(wait)
+                except (httpx.HTTPStatusError, httpx.RequestError, httpx.TimeoutException) as exc:
+                    last_exc = exc
+                    if attempt < max_retries:
+                        wait = _compute_backoff(attempt, exc)
+                        logger.warning(
+                            "POST %s attempt %d/%d failed (%s). Retrying in %.1fs ...",
+                            url, attempt, max_retries, exc, wait,
+                        )
+                        await asyncio.sleep(wait)
 
     raise last_exc  # type: ignore[misc]
 

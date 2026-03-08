@@ -9,7 +9,6 @@ Start with:  python -m src.mcp_servers.protein.server
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from fastmcp import FastMCP
@@ -863,7 +862,7 @@ async def get_interactions(protein: str, species: int = 9606) -> dict[str, Any]:
 
 
 @mcp.tool()
-async def get_network(proteins: str, species: int = 9606) -> dict[str, Any]:
+async def get_network(proteins: str | list[str], species: int = 9606) -> dict[str, Any]:
     """Get the interaction network among a set of proteins from STRING.
 
     Args:
@@ -872,7 +871,10 @@ async def get_network(proteins: str, species: int = 9606) -> dict[str, Any]:
     """
     try:
         # STRING expects newline-separated identifiers for multi-protein queries
-        protein_list = [p.strip() for p in proteins.split(",") if p.strip()]
+        if isinstance(proteins, list):
+            protein_list = [str(p).strip() for p in proteins if str(p).strip()]
+        else:
+            protein_list = [p.strip() for p in proteins.split(",") if p.strip()]
 
         url = f"{STRING_API}/json/network"
         params = {
@@ -938,7 +940,10 @@ async def get_enrichment(proteins: str, species: int = 9606) -> dict[str, Any]:
         species: NCBI taxonomy ID (default 9606 = Homo sapiens).
     """
     try:
-        protein_list = [p.strip() for p in proteins.split(",") if p.strip()]
+        if isinstance(proteins, list):
+            protein_list = [str(p).strip() for p in proteins if str(p).strip()]
+        else:
+            protein_list = [p.strip() for p in proteins.split(",") if p.strip()]
 
         url = f"{STRING_API}/json/enrichment"
         params = {

@@ -10,7 +10,6 @@ Start with:  python -m src.mcp_servers.safety.server
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from fastmcp import FastMCP
@@ -25,7 +24,7 @@ except ImportError:
 # Constants
 # ---------------------------------------------------------------------------
 
-CTD_API = "http://ctdbase.org/tools/batchQuery.go"
+CTD_API = "https://ctdbase.org/tools/batchQuery.go"
 COMPTOX_API = "https://comptox.epa.gov/dashboard-api"
 OPENFDA_API = "https://api.fda.gov"
 IMPC_SOLR = "https://www.ebi.ac.uk/mi/impc/solr"
@@ -357,7 +356,7 @@ async def get_side_effects(drug: str) -> dict[str, Any]:
     try:
         url = f"{OPENFDA_API}/drug/event.json"
         params = {
-            "search": f'patient.drug.openfda.generic_name:"{drug}" OR patient.drug.openfda.brand_name:"{drug}"',
+            "search": f'patient.drug.openfda.generic_name:"{drug.replace(chr(34), "")}" OR patient.drug.openfda.brand_name:"{drug.replace(chr(34), "")}"',
             "count": "patient.reaction.reactionmeddrapt.exact",
             "limit": "30",
         }
@@ -408,7 +407,7 @@ async def get_drug_indications(drug: str) -> dict[str, Any]:
     try:
         url = f"{OPENFDA_API}/drug/label.json"
         params = {
-            "search": f'openfda.generic_name:"{drug}" OR openfda.brand_name:"{drug}"',
+            "search": f'openfda.generic_name:"{drug.replace(chr(34), "")}" OR openfda.brand_name:"{drug.replace(chr(34), "")}"',
             "limit": "3",
         }
         data = await async_http_get(url, params=params, timeout=30.0)

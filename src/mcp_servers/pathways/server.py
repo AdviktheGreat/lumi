@@ -122,7 +122,6 @@ async def get_pathways_for_gene(gene: str) -> dict[str, Any]:
         names, and species.
     """
     try:
-        encoded = quote(gene, safe="")
         url = f"{REACTOME_CONTENT}/search/query"
         params = {
             "query": gene,
@@ -331,7 +330,13 @@ async def get_go_annotations(gene: str) -> dict[str, Any]:
     """
     try:
         encoded = quote(gene, safe="")
-        url = f"{GO_API}/bioentity/gene/HGNC:{encoded}/function"
+        # Use search endpoint — bioentity requires numeric HGNC IDs
+        url = f"{GO_API}/search/entity/autocomplete/{encoded}"
+        params = {"rows": "1", "category": "gene"}
+        search = await async_http_get(url, params=params, timeout=30.0)
+        docs = search.get("docs", [])
+        entity_id = docs[0].get("id", f"HGNC:{encoded}") if docs else f"HGNC:{encoded}"
+        url = f"{GO_API}/bioentity/gene/{quote(entity_id, safe='')}/function"
         params = {"rows": "100"}
         data = await async_http_get(url, params=params, timeout=45.0)
 

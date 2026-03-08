@@ -149,7 +149,7 @@ async def get_target_info(ensembl_gene_id: str) -> dict[str, Any]:
             approvedName
             biotype
             functionDescriptions
-            subcellularLocations { location }
+            subcellularLocations
             tractability {
               label
               modality
@@ -157,12 +157,27 @@ async def get_target_info(ensembl_gene_id: str) -> dict[str, Any]:
             }
             safetyLiabilities {
               event
-              effects { direction dosing }
-              biosample { tissueLabel }
+              effects {
+                direction
+                dosing
+              }
             }
-            pathways { pathway term }
-            knownDrugs { uniqueDrugs uniqueTargets count
-              rows { drug { name mechanismOfAction } phase status }
+            knownDrugs {
+              uniqueDrugs
+              uniqueTargets
+              count
+              rows {
+                drug {
+                  name
+                  mechanismsOfAction {
+                    rows {
+                      mechanismOfAction
+                    }
+                  }
+                }
+                phase
+                status
+              }
             }
           }
         }
@@ -206,31 +221,46 @@ async def query_gwas_associations(gene: str) -> dict[str, Any]:
         gene: Gene symbol (e.g. TP53, BRCA1).
     """
     try:
-        url = f"{GWAS_CATALOG_API}/associations/search/findByGene"
+        # Query studies associated with the gene via the GWAS Catalog REST API
+        url = f"{GWAS_CATALOG_API}/singleNucleotidePolymorphisms/search/findByGene"
         params = {"geneName": gene}
         headers = {"Accept": "application/json"}
         data = await async_http_get(url, params=params, headers=headers)
 
-        associations = data.get("_embedded", {}).get("associations", [])
+        snps = data.get("_embedded", {}).get("singleNucleotidePolymorphisms", [])
+
+        # Extract associations from the SNP records
+        associations = []
+        for snp in snps:
+            rsid = snp.get("rsId", "N/A")
+            for study in snp.get("studies", []):
+                trait = study.get("diseaseTrait", {}).get("trait", "unknown trait") if study.get("diseaseTrait") else "unknown trait"
+                associations.append({
+                    "rsId": rsid,
+                    "trait": trait,
+                    "study_accession": study.get("accessionId", "N/A"),
+                })
+
         summaries = []
-        for assoc in associations[:10]:
-            trait = ""
-            for t in assoc.get("efoTraits", []):
-                trait = t.get("trait", "unknown trait")
+        seen_traits = set()
+        for assoc in associations[:20]:
+            trait = assoc.get("trait", "unknown trait")
+            if trait not in seen_traits:
+                seen_traits.add(trait)
+                summaries.append(f"{trait} ({assoc.get('rsId', 'N/A')})")
+            if len(summaries) >= 5:
                 break
-            pvalue = assoc.get("pvalue", "N/A")
-            summaries.append(f"{trait} (p={pvalue})")
 
         summary = (
-            f"{len(associations)} GWAS associations for {gene}. "
-            f"Top hits: {'; '.join(summaries[:5])}"
-            if associations
+            f"{len(snps)} SNPs with {len(associations)} GWAS associations for {gene}. "
+            f"Top traits: {'; '.join(summaries[:5])}"
+            if snps
             else f"No GWAS associations found for {gene}."
         )
 
         return standard_response(
             summary=summary,
-            raw_data={"associations": associations},
+            raw_data={"snps": snps, "associations": associations},
             source="NHGRI-EBI GWAS Catalog",
             source_id=gene,
             confidence=0.85,
