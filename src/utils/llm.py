@@ -125,8 +125,8 @@ class ConcurrencyGate:
 
 # Module-level singleton — shared by ALL LLMClient instances
 _GLOBAL_GATE = ConcurrencyGate(
-    max_concurrent=int(os.environ.get("LUMI_MAX_CONCURRENT_LLM", "5")),
-    jitter_seconds=float(os.environ.get("LUMI_LLM_JITTER", "0.5")),
+    max_concurrent=int(os.environ.get("LUMI_MAX_CONCURRENT_LLM", "3")),
+    jitter_seconds=float(os.environ.get("LUMI_LLM_JITTER", "1.0")),
 )
 
 
