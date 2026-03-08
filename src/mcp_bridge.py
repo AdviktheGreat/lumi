@@ -337,6 +337,19 @@ try:
 except ImportError:
     logger.warning("Tamarind Bio MCP server not available")
 
+# -- Slack (requires LUMI_SLACK_BOT_TOKEN -- optional) -------------------
+_HAS_SLACK = False
+try:
+    from src.mcp_servers.slack.server import (
+        slack_post_message,
+        slack_post_thread_reply,
+        slack_list_channels,
+        slack_get_thread_replies,
+    )
+    _HAS_SLACK = True
+except ImportError:
+    logger.warning("Slack MCP server not available")
+
 # -- BioRender / Figure Generation (requires mcp + Node.js -- optional) -
 _HAS_BIORENDER = False
 try:
@@ -665,6 +678,15 @@ if _HAS_SV_CALLING:
         "lumpy_filter_sv": lumpy_filter_sv,
     })
 
+# --- Slack (conditional) ---
+if _HAS_SLACK:
+    TOOL_REGISTRY.update({
+        "slack_post_message": slack_post_message,
+        "slack_post_thread_reply": slack_post_thread_reply,
+        "slack_list_channels": slack_list_channels,
+        "slack_get_thread_replies": slack_get_thread_replies,
+    })
+
 # --- Cheminformatics (conditional) ---
 if _HAS_CHEM:
     TOOL_REGISTRY.update({
@@ -776,6 +798,10 @@ _tag("biorender", [
     "generate_literature_wordcloud", "generate_confidence_distribution",
     "generate_clinical_timeline", "generate_category_pie", "generate_venn_diagram",
     "search_biorender_icons", "search_biorender_templates", "download_figure",
+])
+_tag("slack", [
+    "slack_post_message", "slack_post_thread_reply",
+    "slack_list_channels", "slack_get_thread_replies",
 ])
 _tag("cheminformatics", [
     "calculate_descriptors", "check_drug_likeness", "compute_fingerprint",
