@@ -45,6 +45,7 @@ class HITLConfig:
     soft_threshold: float = 0.5
     auto_threshold: float = 0.7
     soft_timeout_seconds: float = 300.0  # 5 minutes
+    hard_timeout_seconds: float = 3600.0  # 1 hour
     slack_channel: str = ""
     enabled: bool = True
 
@@ -181,7 +182,7 @@ class ConfidenceRouter:
                 len(hard_requests),
             )
             await self._wait_for_reviews(
-                hard_requests, timeout=None  # No timeout for hard blocks
+                hard_requests, timeout=self.config.hard_timeout_seconds
             )
             for req in hard_requests:
                 if req.status == ReviewStatus.APPROVED:
