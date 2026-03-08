@@ -4,84 +4,65 @@ version = "0.1.0"
 description = "YOHAS-VB: End-to-end computational drug discovery agentic swarm"
 requires-python = ">=3.11"
 dependencies = [
-    # Anthropic SDK
+    # Core
     "anthropic>=0.40.0",
-
-    # MCP framework
     "fastmcp>=0.4.0",
-
-    # Async HTTP
     "httpx>=0.27.0",
     "aiohttp>=3.9.0",
+    "pydantic>=2.6.0",
+    "python-dotenv>=1.0.0",
+    "tenacity>=8.2.0",
+    "rich>=13.7.0",
 
-    # Bioinformatics core
-    "biopython>=1.83",
-
-    # Single cell
-    "scanpy>=1.10.0",
-    "anndata>=0.10.0",
-    "celltypist>=1.6.0",
-    "decoupler>=1.6.0",
-
-    # Protein / structural
-    "biotite>=0.41.0",
-    "prody>=2.4.0",
-
-    # Metabolic modeling
-    "cobrapy>=0.29.0",
-
-    # ML / DL
-    "torch>=2.2.0",
-    "transformers>=4.40.0",
-    "scikit-learn>=1.4.0",
-    "xgboost>=2.0.0",
-    "lightgbm>=4.3.0",
-
-    # Protein language models
-    "fair-esm>=2.0.0",
-
-    # Genomics
-    "pyensembl>=2.3.0",
-    "pyranges>=0.1.0",
-
-    # Statistics
-    "statsmodels>=0.14.0",
-    "scipy>=1.12.0",
-    "lifelines>=0.29.0",
-    "pingouin>=0.5.4",
-
-    # Data handling
-    "pandas>=2.2.0",
-    "polars>=0.20.0",
+    # Data
     "numpy>=1.26.0",
+    "pandas>=2.2.0",
     "networkx>=3.2.0",
-    "python-igraph>=0.11.0",
 
     # Visualization
     "matplotlib>=3.8.0",
-    "seaborn>=0.13.0",
     "plotly>=5.18.0",
-
-    # Web / scraping
-    "requests>=2.31.0",
-    "beautifulsoup4>=4.12.0",
-
-    # Cheminformatics
-    "rdkit-pypi>=2023.9.0",
-    "datamol>=0.12.0",
 
     # UI
     "streamlit>=1.40.0",
 
-    # Utils
-    "pydantic>=2.6.0",
-    "python-dotenv>=1.0.0",
-    "rich>=13.7.0",
-    "tenacity>=8.2.0",
+    # Async
     "uvloop>=0.19.0;sys_platform!='win32'",
 ]
 
 [project.optional-dependencies]
+bio = [
+    "biopython>=1.83",
+    "scanpy>=1.10.0",
+    "anndata>=0.10.0",
+    "celltypist>=1.6.0",
+    "decoupler>=1.6.0",
+    "biotite>=0.41.0",
+    "prody>=2.4.0",
+    "cobra>=0.29.0",
+    "pyensembl>=2.3.0",
+    "pyranges>=0.1.0",
+    "scipy>=1.12.0",
+    "statsmodels>=0.14.0",
+    "lifelines>=0.29.0",
+    "seaborn>=0.13.0",
+    "polars>=0.20.0",
+    "python-igraph>=0.11.0",
+    "beautifulsoup4>=4.12.0",
+    "requests>=2.31.0",
+]
+ml = [
+    "torch>=2.2.0",
+    "transformers>=4.40.0",
+    "scikit-learn>=1.4.0",
+    "fair-esm>=2.0.0",
+    "xgboost>=2.0.0",
+    "lightgbm>=4.3.0",
+]
+chem = [
+    "rdkit-pypi>=2023.9.0",
+    "datamol>=0.12.0",
+]
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
@@ -91,6 +72,9 @@ dev = [
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
 
 [tool.ruff]
 line-length = 120
