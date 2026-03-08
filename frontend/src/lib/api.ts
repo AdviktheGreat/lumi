@@ -48,7 +48,17 @@ export const api = {
 
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) {
+        // Flush remaining buffer content
+        if (buffer.trim().startsWith("data: ")) {
+          try {
+            yield JSON.parse(buffer.trim().slice(6)) as StreamEvent;
+          } catch {
+            console.warn("Failed to parse final SSE data:", buffer);
+          }
+        }
+        break;
+      }
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
       buffer = lines.pop() || "";
