@@ -20,12 +20,6 @@ from enum import Enum
 from typing import Any, Awaitable, Callable, Optional
 
 import anthropic
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
 
 logger = logging.getLogger("lumi.utils.llm")
 
@@ -249,12 +243,6 @@ class LLMClient:
 
     # -- core chat ----------------------------------------------------------
 
-    @retry(
-        retry=retry_if_exception_type(anthropic.RateLimitError),
-        wait=wait_exponential(multiplier=1, min=1, max=60),
-        stop=stop_after_attempt(6),
-        reraise=True,
-    )
     async def chat(
         self,
         messages: list[dict[str, Any]],
@@ -266,8 +254,10 @@ class LLMClient:
     ) -> anthropic.types.Message:
         """Send a single chat request to the Anthropic API.
 
-        Includes automatic retry with exponential backoff for rate-limit
-        errors (up to 6 attempts).
+        Uses a global concurrency gate to limit in-flight requests,
+        then retries rate-limit errors with exponential backoff + jitter.
+        The gate is released *before* sleeping on retry so other agents
+        can use the slot while this one waits.
 
         Args:
             messages: Conversation messages in Anthropic format.
@@ -291,17 +281,33 @@ class LLMClient:
         if tools is not None:
             kwargs["tools"] = tools
 
-        # Acquire the global concurrency gate to prevent API overload
-        # when many agents call simultaneously
         gate = _GLOBAL_GATE
-        await gate.acquire()
-        try:
-            response = await self._client.messages.create(**kwargs)
-        finally:
-            gate.release()
+        last_exc: Exception | None = None
 
-        self._record_usage(model, response.usage)
-        return response
+        for attempt in range(1, 8):  # up to 7 attempts
+            await gate.acquire()
+            try:
+                response = await self._client.messages.create(**kwargs)
+                self._record_usage(model, response.usage)
+                return response
+            except anthropic.RateLimitError as exc:
+                last_exc = exc
+                if attempt < 7:
+                    # Exponential backoff with jitter: 2s, 4s, 8s, 16s, 32s, 60s
+                    base_wait = min(2 ** attempt, 60)
+                    wait = base_wait + random.uniform(0, base_wait * 0.5)
+                    logger.warning(
+                        "Rate limited (attempt %d/7, %d in-flight). "
+                        "Waiting %.1fs before retry...",
+                        attempt,
+                        gate._in_flight,
+                        wait,
+                    )
+                    await asyncio.sleep(wait)
+            finally:
+                gate.release()
+
+        raise last_exc  # type: ignore[misc]
 
     # -- tool-use loop ------------------------------------------------------
 
