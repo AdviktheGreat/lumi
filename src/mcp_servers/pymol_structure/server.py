@@ -45,7 +45,8 @@ _pymol_cmd: Any | None = None
 _pymol_lock = asyncio.Lock()
 _pymol_render_lock = asyncio.Lock()
 
-_OUTPUT_DIR = os.environ.get("LUMI_PYMOL_OUTPUT", tempfile.gettempdir())
+_OUTPUT_DIR = os.environ.get("LUMI_PYMOL_OUTPUT", os.path.join(os.getcwd(), "output", "pymol"))
+os.makedirs(_OUTPUT_DIR, exist_ok=True)
 
 
 async def _get_pymol():

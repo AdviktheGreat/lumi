@@ -1,9 +1,11 @@
 """Lumi API — FastAPI backend for the chat-first UI."""
 
 import logging
+import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from api.routes import chat, sublabs
 
@@ -22,6 +24,10 @@ app.add_middleware(
 
 app.include_router(chat.router, prefix="/api")
 app.include_router(sublabs.router, prefix="/api")
+
+PYMOL_OUTPUT = os.environ.get("LUMI_PYMOL_OUTPUT", os.path.join(os.getcwd(), "output", "pymol"))
+os.makedirs(PYMOL_OUTPUT, exist_ok=True)
+app.mount("/api/images", StaticFiles(directory=PYMOL_OUTPUT), name="images")
 
 
 @app.get("/api/health")
