@@ -297,6 +297,47 @@ def _mock_division_reports() -> list[DivisionReport]:
     ]
 
 
+def _mock_debate_rounds() -> list[dict]:
+    """Mock multi-agent debate data for confidence scoring visualization."""
+    return [
+        {
+            "round": 1,
+            "agent_id": "target_biologist",
+            "position": "support",
+            "argument": "BRCA1 loss-of-function is well-established as a synthetic lethality target. Multiple preclinical models confirm PARP sensitivity.",
+            "evidence": ["PMID:38291045", "PMID:36842073"],
+        },
+        {
+            "round": 1,
+            "agent_id": "literature_synthesis",
+            "position": "support",
+            "argument": "247 publications consistently support BRCA1 as a validated target. Level 1 clinical evidence from OlympiAD and EMBRACA trials.",
+            "evidence": ["PMID:28578601", "PMID:29863767"],
+        },
+        {
+            "round": 2,
+            "agent_id": "pharmacologist",
+            "position": "challenge",
+            "argument": "Resistance via reversion mutations is observed in 20-30% of patients. Long-term durability of response remains uncertain.",
+            "evidence": ["PMID:37104562"],
+        },
+        {
+            "round": 2,
+            "agent_id": "fda_safety",
+            "position": "neutral",
+            "argument": "Safety profile is manageable but myelosuppression requires monitoring. Risk-benefit is favorable for BRCA-mutant patients specifically.",
+            "evidence": ["PMID:35436722"],
+        },
+        {
+            "round": 3,
+            "agent_id": "target_biologist",
+            "position": "support",
+            "argument": "Acknowledging resistance concern — combination strategies with checkpoint inhibitors may address durability. Biomarker selection mitigates risk.",
+            "evidence": ["PMID:39012345"],
+        },
+    ]
+
+
 def _mock_execution_plan() -> ExecutionPlan:
     return ExecutionPlan(
         query_id="q_demo_001",
@@ -405,6 +446,7 @@ def init_session_state() -> None:
         "mock_report": None,
         "mock_divisions": None,
         "mock_plan": None,
+        "mock_debate": None,
     }
     for key, val in defaults.items():
         if key not in st.session_state:
@@ -508,6 +550,7 @@ def render_submit_tab() -> None:
         st.session_state.mock_report = _mock_final_report()
         st.session_state.mock_divisions = _mock_division_reports()
         st.session_state.mock_plan = _mock_execution_plan()
+        st.session_state.mock_debate = _mock_debate_rounds()
         st.success("Query submitted! Switch to the **Results** tab to view output.")
 
     # Show last submitted query
@@ -564,6 +607,47 @@ def render_results_tab() -> None:
                         st.markdown(f"- {ev.source_db}: `{ev.source_id}`")
                 if claim.methodology:
                     st.markdown(f"**Methodology:** {claim.methodology}")
+
+    st.divider()
+
+    # --- Agent Debate Viewer (#1) -------------------------------------------
+    # TODO: Wire to real debate engine from confidence scoring (#1)
+    st.subheader("Agent Debate")
+    debate_rounds: list[dict] | None = st.session_state.mock_debate
+    if debate_rounds:
+        position_colors = {"support": "green", "challenge": "red", "neutral": "orange"}
+        current_round = 0
+        for entry in debate_rounds:
+            if entry["round"] != current_round:
+                current_round = entry["round"]
+                st.markdown(f"**Round {current_round}**")
+            with st.container(border=True):
+                cols = st.columns([1, 4])
+                with cols[0]:
+                    color = position_colors.get(entry["position"], "gray")
+                    st.markdown(f":`{color}`[**{entry['position'].upper()}**]")
+                    st.caption(entry["agent_id"])
+                with cols[1]:
+                    st.markdown(entry["argument"])
+                    if entry.get("evidence"):
+                        st.caption(f"Evidence: {', '.join(entry['evidence'])}")
+
+        # Consensus summary
+        positions = [e["position"] for e in debate_rounds]
+        support = positions.count("support")
+        challenge = positions.count("challenge")
+        neutral = positions.count("neutral")
+        with st.container(border=True):
+            st.markdown("**Consensus**")
+            cons_cols = st.columns(3)
+            with cons_cols[0]:
+                st.metric("Support", support)
+            with cons_cols[1]:
+                st.metric("Challenge", challenge)
+            with cons_cols[2]:
+                st.metric("Neutral", neutral)
+    else:
+        st.info("No debate data. Submit a query to see agent deliberation.")
 
     st.divider()
 
