@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import type { Chat, SublabInfo } from "@/lib/types";
-import { Send, ChevronRight } from "lucide-react";
+import { Send, ChevronRight, Settings, User } from "lucide-react";
 import clsx from "clsx";
 
 export default function Landing() {
@@ -26,9 +26,16 @@ export default function Landing() {
   async function handleSubmit() {
     if (!query.trim() || submitting) return;
     setSubmitting(true);
-    const sublab = selectedSublab || Object.keys(sublabs)[0] || "target-validation";
-    const chat = await api.createChat(sublab, query.trim());
-    router.push(`/chat/${chat.id}`);
+    try {
+      const sublab = selectedSublab === "dynamic-live" ? "dynamic" : selectedSublab || Object.keys(sublabs)[0] || "target-validation";
+      const mode = selectedSublab === "dynamic-live" ? "live" : "mock";
+      const chat = await api.createChat(sublab, query.trim());
+      router.push(`/chat/${chat.id}?mode=${mode}`);
+    } catch (err) {
+      console.error("Failed to create chat:", err);
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   function selectExample(sublabId: string, example: string) {
@@ -71,6 +78,23 @@ export default function Landing() {
           ) : (
             <p className="px-3 py-2 text-xs text-[var(--text-muted)] animate-fade-in">No tasks yet. Start a new research query.</p>
           )}
+        </div>
+
+        {/* User & Settings */}
+        <div className="shrink-0 border-t border-[var(--border)] p-3 space-y-0.5">
+          <button className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs text-[var(--text-muted)] transition-all hover:bg-[var(--bg-hover)] hover:text-[var(--text)]">
+            <Settings size={14} className="opacity-50" />
+            Settings
+          </button>
+          <div className="flex items-center gap-2.5 rounded-lg px-3 py-2">
+            <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--accent)] text-white">
+              <User size={12} />
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-xs font-medium text-[var(--text)]">John Doe</p>
+              <p className="text-[10px] text-[var(--text-muted)]">Computational Biology</p>
+            </div>
+          </div>
         </div>
       </aside>
 
@@ -131,19 +155,25 @@ export default function Landing() {
 
           {/* Sublab chips */}
           <div className="mt-5 flex gap-2 overflow-x-auto no-scrollbar pb-1">
-            {/* Dynamic SubLab — always available */}
-            <button
-              onClick={() => setSelectedSublab(selectedSublab === "dynamic" ? null : "dynamic")}
-              className={clsx(
-                "shrink-0 rounded-full border px-4 py-2 text-xs font-medium transition-all duration-200 hover:scale-[1.03] active:scale-[0.97] animate-slide-up",
-                selectedSublab === "dynamic"
-                  ? "border-[var(--accent)] bg-[var(--accent-light)] text-[var(--accent-dark)] shadow-sm"
-                  : "border-[var(--border)] bg-[var(--bg-card)] text-[var(--text-secondary)] hover:border-[var(--border-hover)] hover:bg-[var(--bg-hover)]"
-              )}
-              style={{ animationDelay: "300ms" }}
-            >
-              Dynamic
-            </button>
+            {/* Dynamic SubLab chips */}
+            {[
+              { id: "dynamic", label: "Dynamic (Mock)" },
+              { id: "dynamic-live", label: "Dynamic (Live)" },
+            ].map((chip) => (
+              <button
+                key={chip.id}
+                onClick={() => setSelectedSublab(selectedSublab === chip.id ? null : chip.id)}
+                className={clsx(
+                  "shrink-0 rounded-full border px-4 py-2 text-xs font-medium transition-all duration-200 hover:scale-[1.03] active:scale-[0.97] animate-slide-up",
+                  selectedSublab === chip.id
+                    ? "border-[var(--accent)] bg-[var(--accent-light)] text-[var(--accent-dark)] shadow-sm"
+                    : "border-[var(--border)] bg-[var(--bg-card)] text-[var(--text-secondary)] hover:border-[var(--border-hover)] hover:bg-[var(--bg-hover)]"
+                )}
+                style={{ animationDelay: "300ms" }}
+              >
+                {chip.label}
+              </button>
+            ))}
             {Object.entries(sublabs).map(([id, info], i) => (
               <button
                 key={id}
@@ -163,11 +193,17 @@ export default function Landing() {
           </div>
 
           {/* Dynamic sublab examples */}
-          {selectedSublab === "dynamic" && (
+          {(selectedSublab === "dynamic" || selectedSublab === "dynamic-live") && (
             <div className="mt-3 rounded-xl border border-[var(--border)] bg-[var(--bg-card)] overflow-hidden animate-scale-in shadow-sm">
               <div className="px-4 py-2.5 border-b border-[var(--border)]">
-                <p className="text-xs font-medium text-[var(--text)]">Dynamic</p>
-                <p className="text-[11px] text-[var(--text-muted)] mt-0.5">AI composes a custom agent team from all 119 tools based on your query</p>
+                <p className="text-xs font-medium text-[var(--text)]">
+                  {selectedSublab === "dynamic-live" ? "Dynamic (Live)" : "Dynamic (Mock)"}
+                </p>
+                <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
+                  {selectedSublab === "dynamic-live"
+                    ? "Real pipeline execution — agents call LLMs and external APIs"
+                    : "Hardcoded demo — simulated agent traces with realistic timing"}
+                </p>
               </div>
               <div className="py-1">
                 {[
@@ -177,7 +213,7 @@ export default function Landing() {
                 ].map((example, i) => (
                   <button
                     key={i}
-                    onClick={() => selectExample("dynamic", example)}
+                    onClick={() => selectExample(selectedSublab!, example)}
                     className="w-full px-4 py-2.5 text-left text-sm text-[var(--text-secondary)] transition-all hover:bg-[var(--accent-light)] hover:text-[var(--accent-dark)] hover:pl-5 animate-fade-in"
                     style={{ animationDelay: `${i * 50}ms` }}
                   >

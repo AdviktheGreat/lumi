@@ -78,6 +78,17 @@ export interface IntegrationCall {
   detail: string;
 }
 
+export interface ClarifyQuestion {
+  id: string;
+  question: string;
+  placeholder: string;
+}
+
+export interface ClarifyResponse {
+  questions: ClarifyQuestion[];
+  context_summary: string;
+}
+
 // SSE event types from the streaming endpoint
 export type StreamEvent =
   | { type: "trace_start"; message_id: string; trace: AgentTrace }

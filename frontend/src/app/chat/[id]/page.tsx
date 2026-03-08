@@ -1,22 +1,23 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback, use } from "react";
+import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
-import type { Chat, Message, AgentTrace, HitlRequest, IntegrationCall } from "@/lib/types";
+import type { Chat, Message, AgentTrace, HitlRequest, IntegrationCall, ClarifyQuestion } from "@/lib/types";
 import { ChatList } from "@/components/chat/chat-list";
 import { ChatMessage } from "@/components/chat/message";
+import { ClarifyCard } from "@/components/chat/clarify-card";
 import { AgentActivityGroup } from "@/components/chat/agent-activity-group";
 import { HitlCard } from "@/components/chat/hitl-card";
 import { IntegrationCard } from "@/components/chat/integration-card";
 import { AgentsPanel } from "@/components/panels/agents-panel";
 import { PlanPanel } from "@/components/panels/plan-panel";
 import { ToolsPanel } from "@/components/panels/tools-panel";
-import { Send, PanelRightOpen, PanelRightClose, FlaskConical } from "lucide-react";
+import { Send, PanelRightOpen, PanelRightClose, FlaskConical, Settings, User } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import clsx from "clsx";
 
-type RightTab = "plan" | "agents" | "tools";
 
 type LiveEvent =
   | { kind: "trace"; trace: AgentTrace }
@@ -26,6 +27,8 @@ type LiveEvent =
 
 export default function ChatPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: chatId } = use(params);
+  const searchParams = useSearchParams();
+  const mode = searchParams.get("mode") || "mock";
   const [chat, setChat] = useState<Chat | null>(null);
   const [chats, setChats] = useState<Chat[]>([]);
   const [input, setInput] = useState("");
@@ -33,8 +36,9 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
   const [streamText, setStreamText] = useState("");
   const [liveEvents, setLiveEvents] = useState<LiveEvent[]>([]);
   const [liveTraces, setLiveTraces] = useState<AgentTrace[]>([]);
-  const [rightTab, setRightTab] = useState<RightTab>("plan");
   const [rightOpen, setRightOpen] = useState(true);
+  const [clarifyQuestions, setClarifyQuestions] = useState<ClarifyQuestion[] | null>(null);
+  const [pendingQuery, setPendingQuery] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -46,11 +50,23 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [chat?.messages, streamText, liveEvents]);
+  }, [chat?.messages, streamText, liveEvents, clarifyQuestions]);
 
   useEffect(() => {
     if (chat && chat.messages.length === 1 && chat.messages[0].role === "user") {
-      runStream(chat.messages[0].content);
+      const query = chat.messages[0].content;
+      // Fetch clarifying questions before starting the pipeline
+      api.clarify(chatId, query, mode).then((res) => {
+        if (res.questions.length > 0) {
+          setPendingQuery(query);
+          setClarifyQuestions(res.questions);
+        } else {
+          runStream(query);
+        }
+      }).catch(() => {
+        // If clarify fails, just run the stream directly
+        runStream(query);
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chat?.id]);
@@ -62,8 +78,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
     setLiveTraces([]);
 
     try {
-    for await (const event of api.sendMessage(chatId, content)) {
-      console.log("[SSE]", event.type, event);
+    for await (const event of api.sendMessage(chatId, content, mode)) {
       switch (event.type) {
         case "trace_start":
           setLiveTraces((prev) => [...prev, event.trace]);
@@ -97,9 +112,18 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
             )
           );
           break;
-        case "hitl_flag":
+        case "hitl_flag": {
           setLiveEvents((prev) => [...prev, { kind: "hitl_flag", hitl: event.hitl }]);
+          // Open HITL review in a new tab
+          const hitlParams = new URLSearchParams({
+            finding: event.hitl.finding,
+            agent: event.hitl.agent_id,
+            confidence: String(event.hitl.confidence_score),
+            reason: event.hitl.reason,
+          });
+          window.open(`/hitl?${hitlParams.toString()}`, "_blank");
           break;
+        }
         case "hitl_resolved":
           setLiveEvents((prev) =>
             prev.map((e) =>
@@ -129,7 +153,29 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
       console.error("[SSE] Stream error:", err);
       setStreaming(false);
     }
-  }, [chatId]);
+  }, [chatId, mode]);
+
+  function handleClarifySubmit(answers: Record<string, string>) {
+    if (!pendingQuery) return;
+    const answerLines = Object.entries(answers)
+      .filter(([, v]) => v.trim())
+      .map(([k, v]) => `${k}: ${v}`)
+      .join("\n");
+    const enrichedQuery = answerLines
+      ? `${pendingQuery}\n\nAdditional context:\n${answerLines}`
+      : pendingQuery;
+    setClarifyQuestions(null);
+    setPendingQuery(null);
+    runStream(enrichedQuery);
+  }
+
+  function handleClarifySkip() {
+    if (!pendingQuery) return;
+    setClarifyQuestions(null);
+    const query = pendingQuery;
+    setPendingQuery(null);
+    runStream(query);
+  }
 
   async function handleSend() {
     if (!input.trim() || streaming) return;
@@ -147,6 +193,18 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
       sublab: null,
     };
     setChat((prev) => prev ? { ...prev, messages: [...prev.messages, userMsg] } : prev);
+
+    // Show clarifying questions for follow-up messages too
+    try {
+      const res = await api.clarify(chatId, text, mode);
+      if (res.questions.length > 0) {
+        setPendingQuery(text);
+        setClarifyQuestions(res.questions);
+        return;
+      }
+    } catch {
+      // If clarify fails, proceed directly
+    }
     await runStream(text);
   }
 
@@ -187,6 +245,22 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
           </a>
         </div>
         <ChatList chats={chats} activeChatId={chatId} />
+        {/* User & Settings */}
+        <div className="shrink-0 border-t border-[var(--sidebar-hover)] p-3 space-y-0.5">
+          <button className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs text-[var(--sidebar-text)] transition-all hover:bg-[var(--sidebar-hover)]">
+            <Settings size={14} className="opacity-50" />
+            Settings
+          </button>
+          <div className="flex items-center gap-2.5 rounded-lg px-3 py-2">
+            <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--accent)] text-white">
+              <User size={12} />
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-xs font-medium text-white">John Doe</p>
+              <p className="text-[10px] text-[var(--sidebar-text-muted)]">Computational Biology</p>
+            </div>
+          </div>
+        </div>
       </aside>
 
       {/* Center — Chat */}
@@ -209,6 +283,15 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
           {chat.messages.map((msg, i) => (
             <ChatMessage key={msg.id} message={msg} index={i} />
           ))}
+
+          {/* Clarifying questions */}
+          {clarifyQuestions && (
+            <ClarifyCard
+              questions={clarifyQuestions}
+              onSubmit={handleClarifySubmit}
+              onSkip={handleClarifySkip}
+            />
+          )}
 
           {/* Live streaming — assistant message layout */}
           {streaming && (
@@ -304,34 +387,30 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
         </div>
       </main>
 
-      {/* Right panel */}
+      {/* Right panel — stacked sections */}
       <aside
         className={clsx(
           "shrink-0 border-l border-[var(--border)] bg-[var(--bg-card)] flex flex-col transition-all duration-300 ease-out overflow-hidden",
           rightOpen ? "w-80 opacity-100" : "w-0 opacity-0 border-l-0"
         )}
       >
-        <div className="w-80 flex flex-col h-full">
-          <div className="flex border-b border-[var(--border)]">
-            {(["plan", "agents", "tools"] as RightTab[]).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setRightTab(tab)}
-                className={clsx(
-                  "flex-1 py-2.5 text-xs font-medium capitalize transition-all duration-200 border-b-2 relative",
-                  tab === rightTab
-                    ? "border-[var(--accent)] text-[var(--accent)]"
-                    : "border-transparent text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
-                )}
-              >
-                {tab}
-              </button>
-            ))}
+        <div className="w-80 flex flex-col h-full overflow-y-auto">
+          {/* Plan */}
+          <div className="p-4 border-b border-[var(--border)]">
+            <p className="text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)] mb-3">Pipeline</p>
+            <PlanPanel liveTraces={liveTraces} streaming={streaming} />
           </div>
-          <div className="flex-1 overflow-y-auto p-4">
-            {rightTab === "plan" && <PlanPanel liveTraces={liveTraces} streaming={streaming} />}
-            {rightTab === "agents" && <AgentsPanel sublab={chat.sublab} liveTraces={liveTraces} />}
-            {rightTab === "tools" && <ToolsPanel />}
+
+          {/* Agents */}
+          <div className="p-4 border-b border-[var(--border)]">
+            <p className="text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)] mb-3">Agents</p>
+            <AgentsPanel sublab={chat.sublab} liveTraces={liveTraces} />
+          </div>
+
+          {/* Tools */}
+          <div className="p-4">
+            <p className="text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)] mb-3">Tools</p>
+            <ToolsPanel />
           </div>
         </div>
       </aside>

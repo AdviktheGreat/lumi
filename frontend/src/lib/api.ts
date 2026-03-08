@@ -1,4 +1,4 @@
-import type { Chat, SublabInfo, AgentInfo, ToolInfo, IntegrationInfo, StreamEvent } from "./types";
+import type { Chat, SublabInfo, AgentInfo, ToolInfo, IntegrationInfo, StreamEvent, ClarifyResponse } from "./types";
 
 const BASE = "/api";
 // SSE streams must bypass Next.js rewrite proxy (it buffers the response).
@@ -27,18 +27,22 @@ export const api = {
   listTools: () => get<ToolInfo[]>("/sublabs/meta/tools"),
   listIntegrations: () => get<IntegrationInfo[]>("/sublabs/meta/integrations"),
 
+  clarify: (chatId: string, query: string, mode = "mock") =>
+    post<ClarifyResponse>(`/chats/${chatId}/clarify`, { query, mode }),
+
   listChats: () => get<Chat[]>("/chats"),
   getChat: (id: string) => get<Chat>(`/chats/${id}`),
   createChat: (sublab: string, message: string) => post<Chat>("/chats", { sublab, message }),
 
-  sendMessage: async function* (chatId: string, content: string): AsyncGenerator<StreamEvent> {
+  sendMessage: async function* (chatId: string, content: string, mode = "mock"): AsyncGenerator<StreamEvent> {
     const res = await fetch(`${SSE_BASE}/chats/${chatId}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ content, mode }),
     });
     if (!res.ok) throw new Error(`POST /chats/${chatId}/messages: ${res.status}`);
-    const reader = res.body!.getReader();
+    if (!res.body) throw new Error("Response body is null");
+    const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
 
@@ -50,7 +54,11 @@ export const api = {
       buffer = lines.pop() || "";
       for (const line of lines) {
         if (line.startsWith("data: ")) {
-          yield JSON.parse(line.slice(6)) as StreamEvent;
+          try {
+            yield JSON.parse(line.slice(6)) as StreamEvent;
+          } catch {
+            console.warn("Failed to parse SSE data:", line);
+          }
         }
       }
     }
