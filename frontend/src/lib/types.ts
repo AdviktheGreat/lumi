@@ -24,6 +24,7 @@ export interface Message {
   agent_traces: AgentTrace[];
   hitl_events: HitlRequest[];
   integration_events: IntegrationCall[];
+  expert_review_messages: ExpertReviewMsg[];
   sublab: string | null;
 }
 
@@ -68,6 +69,7 @@ export interface HitlRequest {
   agent_id: string;
   confidence_score: number;
   reason: string;
+  finding_id: string;
   status: "pending" | "approved" | "rejected";
 }
 
@@ -76,6 +78,17 @@ export interface IntegrationCall {
   action: string;
   status: "running" | "complete" | "error";
   detail: string;
+  image_url?: string;
+}
+
+export interface ExpertReviewMsg {
+  finding_id: string;
+  role: "agent" | "expert";
+  name: string;
+  title: string;
+  text: string;
+  channel: string;
+  status: "in_progress" | "approved" | "revised" | "rejected";
 }
 
 export interface ClarifyQuestion {
@@ -97,5 +110,6 @@ export type StreamEvent =
   | { type: "hitl_flag"; message_id: string; hitl: HitlRequest }
   | { type: "hitl_resolved"; message_id: string; hitl: HitlRequest }
   | { type: "integration"; message_id: string; call: IntegrationCall }
+  | { type: "expert_review"; message_id: string; review: ExpertReviewMsg }
   | { type: "text_delta"; message_id: string; delta: string }
   | { type: "done"; message_id: string };
