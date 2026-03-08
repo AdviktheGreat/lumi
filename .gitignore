@@ -1,16 +1,40 @@
+# Python
 __pycache__/
 *.pyc
-.env
+*.pyo
 *.egg-info/
 dist/
 build/
 .venv/
 venv/
+
+# Environment
+.env
+.env.*
+!.env.template
+
+# Data
 data/metabolic_models/*.xml
 data/reference/*.fasta
 data/reference/*.obo
 data/reference/*.tsv
 *.db
 *.jsonl
+
+# Tools
 .ruff_cache/
 .pytest_cache/
+.mypy_cache/
+
+# IDE / tools
+.claude/
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Reports / artifacts
+reports/
+*.pdf
+*.html
