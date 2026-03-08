@@ -9,6 +9,7 @@ Review Panel, Biosecurity Officer, and World Model.
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Optional
 
@@ -145,12 +146,27 @@ async def run_yohas_pipeline(
 
         emitter = PipelineEventEmitter(on_event)
 
+        # Wire HITL config from env vars
+        from src.orchestrator.hitl.router import HITLConfig
+        slack_channel = os.environ.get("LUMI_SLACK_CHANNEL", "")
+        hitl_config = HITLConfig(slack_channel=slack_channel)
+
         cso = CSOOrchestrator(
             divisions=divisions,
             tool_catalog=tool_catalog,
             sublab_hint=sublab_hint,
             emitter=emitter,
+            hitl_config=hitl_config,
         )
+
+        # Wire MCP Slack sender if available
+        if slack_channel:
+            try:
+                from src.mcp_servers.slack.server import slack_post_message
+                cso.hitl_router.notifier.set_mcp_sender(slack_post_message)
+                logger.info("[Pipeline] Slack notifier wired to channel %s", slack_channel)
+            except ImportError:
+                logger.debug("[Pipeline] Slack MCP server not available for HITL notifier")
         report = await cso.run(user_query)
 
     except Exception as exc:

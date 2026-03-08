@@ -324,6 +324,15 @@ class CSOOrchestrator:
                     reason=f"Below hard threshold ({self.hitl_config.hard_threshold}). Blocked pending review.",
                 )
 
+            # Emit integration event for Slack notification
+            if self.hitl_config.slack_channel and (self.hitl_result.caveated or self.hitl_result.blocked):
+                await self.emitter.integration(
+                    integration="Slack",
+                    action=f"Posted HITL review to {self.hitl_config.slack_channel}",
+                    status="complete",
+                    detail=f"{len(self.hitl_result.caveated)} advisory, {len(self.hitl_result.blocked)} blocking findings sent for expert review.",
+                )
+
             if self.hitl_result.has_blocked:
                 logger.warning(
                     "[CSO] %d findings blocked by HITL — excluded from report",
