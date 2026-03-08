@@ -820,6 +820,33 @@ def render_monitor_tab() -> None:
     else:
         st.info("No cost data yet. Submit a query first.")
 
+    st.divider()
+
+    # --- Computational Biology Jobs (#5) ------------------------------------
+    # TODO: Wire to Tamarind Bio API (#5)
+    st.subheader("Computational Biology Jobs")
+    mock_jobs = [
+        {"job_id": "tb_001", "type": "protein_folding", "target": "BRCA1 BRCT domain", "status": "complete", "submitted": "2m ago"},
+        {"job_id": "tb_002", "type": "docking", "target": "PARP1-olaparib", "status": "running", "submitted": "45s ago"},
+        {"job_id": "tb_003", "type": "md_simulation", "target": "BRCA1-RAD51 complex", "status": "queued", "submitted": "10s ago"},
+    ]
+    status_icons = {"complete": ":green_circle:", "running": ":orange_circle:", "queued": ":white_circle:"}
+    for job in mock_jobs:
+        with st.container(border=True):
+            cols = st.columns([1, 2, 1, 1])
+            with cols[0]:
+                st.markdown(f"{status_icons.get(job['status'], '')} **{job['status'].upper()}**")
+            with cols[1]:
+                st.markdown(f"`{job['job_id']}` — {job['type'].replace('_', ' ')}")
+                st.caption(f"Target: {job['target']}")
+            with cols[2]:
+                st.caption(f"Submitted: {job['submitted']}")
+            with cols[3]:
+                if job["status"] == "complete":
+                    with st.expander("Results"):
+                        st.caption("Predicted structure confidence: pLDDT 87.3")
+                        st.caption("Placeholder — wire to Tamarind Bio API (#5)")
+
 
 # ---------------------------------------------------------------------------
 # Tab 4: Expert Review (#2)
