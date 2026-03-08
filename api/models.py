@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -74,6 +75,7 @@ class CreateChatRequest(BaseModel):
 
 class SendMessageRequest(BaseModel):
     content: str
+    mode: Literal["mock", "live"] = "mock"
 
 
 class SublabInfo(BaseModel):
@@ -101,3 +103,19 @@ class IntegrationInfo(BaseModel):
     name: str
     status: str = "available"  # available | connected | disabled
     description: str
+
+
+class ClarifyQuestion(BaseModel):
+    id: str
+    question: str
+    placeholder: str = ""
+
+
+class ClarifyRequest(BaseModel):
+    query: str
+    mode: Literal["mock", "live"] = "mock"
+
+
+class ClarifyResponse(BaseModel):
+    questions: list[ClarifyQuestion]
+    context_summary: str = ""

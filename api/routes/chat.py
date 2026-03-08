@@ -21,7 +21,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 log = logging.getLogger("lumi.chat")
@@ -29,6 +29,9 @@ log = logging.getLogger("lumi.chat")
 from api.models import (
     AgentTrace,
     Chat,
+    ClarifyQuestion,
+    ClarifyRequest,
+    ClarifyResponse,
     CreateChatRequest,
     HitlEvent,
     IntegrationEvent,
@@ -40,7 +43,28 @@ from api.models import (
 
 router = APIRouter(prefix="/chats", tags=["chats"])
 
+# Seed sidebar with realistic past research chats
+_seed_chats: list[tuple[str, str, str]] = [
+    ("a1b2c3d4", "BRCA2 synthetic lethality screen — PARP inhibitor candidates", "target-validation"),
+    ("e5f6a7b8", "JAK2 V617F myelofibrosis safety assessment", "target-validation"),
+    ("c9d0e1f2", "CDK4/6 inhibitor resistance mechanisms in HR+ breast cancer", "dynamic"),
+    ("a3b4c5d6", "TREM2 agonist antibody for Alzheimer's microglial phagocytosis", "dynamic"),
+    ("e7f8a9b0", "USP1 inhibitor selectivity profiling across DUB family", "dynamic"),
+    ("c1d2e3f4", "SHP2 allosteric inhibitor combo with KRAS G12C in NSCLC", "dynamic"),
+    ("a5b6c7d8", "PCSK9 siRNA vs mAb cardiovascular outcomes comparison", "target-validation"),
+    ("e9f0a1b2", "GLP-1R agonist repurposing for Parkinson's neuroprotection", "dynamic"),
+    ("c3d4e5f6", "CFTR modulator triple therapy — ivacaftor/tezacaftor/elexacaftor", "dynamic"),
+    ("a7b8c9d0", "BET bromodomain degrader PROTAC design for AML", "dynamic"),
+    ("e1f2a3b4", "IL-23 p19 antibody biosimilar developability assessment", "dynamic"),
+    ("c5d6e7f8", "APOE4 antisense oligonucleotide BBB penetration modeling", "dynamic"),
+]
+
 _chats: dict[str, Chat] = {}
+for _id, _title, _sublab in _seed_chats:
+    _c = Chat(id=_id, title=_title, sublab=_sublab)
+    _c.messages.append(Message(id=f"m_{_id}", role=Role.USER, content=_title))
+    _c.messages.append(Message(id=f"r_{_id}", role=Role.ASSISTANT, content=f"Analysis complete for: {_title}"))
+    _chats[_id] = _c
 
 
 # ===========================================================================
@@ -123,7 +147,7 @@ async def _stream_mock(chat: Chat, msg_id: str):
         agent_id="cso_orchestrator", division="Orchestration", status="running",
         message="Analyzing research query...",
     ).model_dump()})
-    await asyncio.sleep(1.2)
+    await asyncio.sleep(2.0)
 
     cso_done = AgentTrace(
         agent_id="cso_orchestrator", division="Orchestration", status="complete",
@@ -136,7 +160,7 @@ async def _stream_mock(chat: Chat, msg_id: str):
     )
     yield _sse("trace_complete", {"trace": cso_done.model_dump()})
     all_traces.append(cso_done)
-    await asyncio.sleep(0.6)
+    await asyncio.sleep(1.0)
 
     # ── Phase 2: Biosecurity Pre-screen ──
 
@@ -144,7 +168,7 @@ async def _stream_mock(chat: Chat, msg_id: str):
         agent_id="biosecurity_officer", division="Biosecurity", status="running",
         message="Screening for dual-use risk...",
     ).model_dump()})
-    await asyncio.sleep(0.6)
+    await asyncio.sleep(1.0)
 
     bio_tool = ToolCall(
         tool_name="screen_biosecurity",
@@ -153,7 +177,7 @@ async def _stream_mock(chat: Chat, msg_id: str):
         duration_ms=740,
     )
     yield _sse("tool_call", {"agent_id": "biosecurity_officer", "tool": bio_tool.model_dump()})
-    await asyncio.sleep(0.6)
+    await asyncio.sleep(1.0)
 
     bio_done = AgentTrace(
         agent_id="biosecurity_officer", division="Biosecurity", status="complete",
@@ -163,7 +187,7 @@ async def _stream_mock(chat: Chat, msg_id: str):
     )
     yield _sse("trace_complete", {"trace": bio_done.model_dump()})
     all_traces.append(bio_done)
-    await asyncio.sleep(0.5)
+    await asyncio.sleep(0.8)
 
     # ── Phase 3: SubLab Planning ──
 
@@ -171,7 +195,7 @@ async def _stream_mock(chat: Chat, msg_id: str):
         agent_id="sublab_planner", division="Orchestration", status="running",
         message="Planning dynamic agent team (Opus)...",
     ).model_dump()})
-    await asyncio.sleep(1.2)
+    await asyncio.sleep(2.0)
 
     plan_done = AgentTrace(
         agent_id="sublab_planner", division="Orchestration", status="complete",
@@ -192,7 +216,7 @@ async def _stream_mock(chat: Chat, msg_id: str):
     )
     yield _sse("trace_complete", {"trace": plan_done.model_dump()})
     all_traces.append(plan_done)
-    await asyncio.sleep(0.6)
+    await asyncio.sleep(1.0)
 
     # ── HITL: Scope Approval ──
 
@@ -211,12 +235,12 @@ async def _stream_mock(chat: Chat, msg_id: str):
         "status": "pending",
     }
     yield _sse("hitl_flag", {"hitl": scope_hitl})
-    await asyncio.sleep(2.0)
+    await asyncio.sleep(3.0)
 
     scope_resolved = {**scope_hitl, "status": "approved", "reason": "Scope approved. Executing dynamic SubLab pipeline."}
     yield _sse("hitl_resolved", {"hitl": scope_resolved})
     all_hitl.append(HitlEvent(**scope_resolved))
-    await asyncio.sleep(0.8)
+    await asyncio.sleep(1.2)
 
     # ── Phase 4: Group 1 — Parallel Data Gathering ──
 
@@ -229,7 +253,7 @@ async def _stream_mock(chat: Chat, msg_id: str):
         agent_id="neuro_genomics_analyst", division="Dynamic SubLab · Group 1", status="running",
         message="Gathering gene, expression, pathway, and GWAS data...",
     ).model_dump()})
-    await asyncio.sleep(0.8)
+    await asyncio.sleep(1.5)
 
     # Tool calls for each agent
     pharma_tools = [
@@ -248,11 +272,11 @@ async def _stream_mock(chat: Chat, msg_id: str):
     # Interleave tool calls — demonstrates parallel execution
     for i in range(4):
         yield _sse("tool_call", {"agent_id": "pharmacology_drug_analyst", "tool": pharma_tools[i].model_dump()})
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(1.0)
         yield _sse("tool_call", {"agent_id": "neuro_genomics_analyst", "tool": neuro_tools[i].model_dump()})
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(1.0)
 
-    await asyncio.sleep(0.4)
+    await asyncio.sleep(0.8)
 
     # Complete both agents
     pharma_done = AgentTrace(
@@ -263,7 +287,7 @@ async def _stream_mock(chat: Chat, msg_id: str):
     )
     yield _sse("trace_complete", {"trace": pharma_done.model_dump()})
     all_traces.append(pharma_done)
-    await asyncio.sleep(0.3)
+    await asyncio.sleep(0.6)
 
     neuro_done = AgentTrace(
         agent_id="neuro_genomics_analyst", division="Dynamic SubLab · Group 1", status="complete",
@@ -273,7 +297,7 @@ async def _stream_mock(chat: Chat, msg_id: str):
     )
     yield _sse("trace_complete", {"trace": neuro_done.model_dump()})
     all_traces.append(neuro_done)
-    await asyncio.sleep(0.6)
+    await asyncio.sleep(1.0)
 
     # ── Phase 5: Group 2 — Synthesis & Visualization ──
 
@@ -281,7 +305,7 @@ async def _stream_mock(chat: Chat, msg_id: str):
         agent_id="pathway_visualization", division="Dynamic SubLab · Group 2", status="running",
         message="Generating pathway and MOA diagrams from Group 1 findings...",
     ).model_dump()})
-    await asyncio.sleep(0.8)
+    await asyncio.sleep(1.5)
 
     viz_tools = [
         ToolCall(
@@ -299,9 +323,9 @@ async def _stream_mock(chat: Chat, msg_id: str):
     ]
     for tool in viz_tools:
         yield _sse("tool_call", {"agent_id": "pathway_visualization", "tool": tool.model_dump()})
-        await asyncio.sleep(0.8)
+        await asyncio.sleep(1.2)
 
-    await asyncio.sleep(0.4)
+    await asyncio.sleep(0.8)
     viz_done = AgentTrace(
         agent_id="pathway_visualization", division="Dynamic SubLab · Group 2", status="complete",
         message="Generated pathway diagram (GLP-1R → BDNF cascade with PI3K/Akt branch) and MOA diagram for semaglutide in PD.",
@@ -310,7 +334,7 @@ async def _stream_mock(chat: Chat, msg_id: str):
     )
     yield _sse("trace_complete", {"trace": viz_done.model_dump()})
     all_traces.append(viz_done)
-    await asyncio.sleep(0.6)
+    await asyncio.sleep(1.0)
 
     # ── Phase 6: Adversarial Review Panel ──
 
@@ -318,7 +342,7 @@ async def _stream_mock(chat: Chat, msg_id: str):
         agent_id="review_panel", division="Orchestration", status="running",
         message="Running 3-pass adversarial review (methodology → evidence → synthesis)...",
     ).model_dump()})
-    await asyncio.sleep(0.8)
+    await asyncio.sleep(1.5)
 
     review_tool = ToolCall(
         tool_name="confidence_calibration",
@@ -327,7 +351,7 @@ async def _stream_mock(chat: Chat, msg_id: str):
         duration_ms=860,
     )
     yield _sse("tool_call", {"agent_id": "review_panel", "tool": review_tool.model_dump()})
-    await asyncio.sleep(0.6)
+    await asyncio.sleep(1.0)
 
     review_done = AgentTrace(
         agent_id="review_panel", division="Orchestration", status="complete",
@@ -337,7 +361,7 @@ async def _stream_mock(chat: Chat, msg_id: str):
     )
     yield _sse("trace_complete", {"trace": review_done.model_dump()})
     all_traces.append(review_done)
-    await asyncio.sleep(0.6)
+    await asyncio.sleep(1.0)
 
     # ── Phase 7: HITL — Low-confidence clinical finding ──
 
@@ -349,7 +373,7 @@ async def _stream_mock(chat: Chat, msg_id: str):
         "status": "pending",
     }
     yield _sse("hitl_flag", {"hitl": clinical_hitl})
-    await asyncio.sleep(2.5)
+    await asyncio.sleep(3.5)
 
     clinical_resolved = {
         **clinical_hitl,
@@ -358,7 +382,7 @@ async def _stream_mock(chat: Chat, msg_id: str):
     }
     yield _sse("hitl_resolved", {"hitl": clinical_resolved})
     all_hitl.append(HitlEvent(**clinical_resolved))
-    await asyncio.sleep(0.8)
+    await asyncio.sleep(1.2)
 
     # ── Phase 8: Integrations ──
 
@@ -370,7 +394,7 @@ async def _stream_mock(chat: Chat, msg_id: str):
     for integ in integrations:
         all_integrations.append(integ)
         yield _sse("integration", {"call": integ.model_dump()})
-        await asyncio.sleep(0.8)
+        await asyncio.sleep(1.2)
 
     # ── Phase 9: Final synthesis ──
 
@@ -380,7 +404,7 @@ async def _stream_mock(chat: Chat, msg_id: str):
     for chunk in chunks:
         accumulated += chunk
         yield _sse("text_delta", {"delta": chunk})
-        await asyncio.sleep(0.03)
+        await asyncio.sleep(0.05)
 
     # Store message
     assistant_msg = Message(
@@ -396,6 +420,96 @@ async def _stream_mock(chat: Chat, msg_id: str):
 # ===========================================================================
 # Routes
 # ===========================================================================
+
+
+# ===========================================================================
+# Clarifying questions
+# ===========================================================================
+
+_MOCK_CLARIFY: dict[str, list[ClarifyQuestion]] = {
+    "glp1r": [
+        ClarifyQuestion(id="indication", question="Which stage of Parkinson's disease are you targeting — early-stage (Hoehn & Yahr I-II) or advanced?", placeholder="e.g., Early-stage, pre-motor phase"),
+        ClarifyQuestion(id="scope", question="Should the analysis focus on neuroprotection mechanisms, clinical trial feasibility, or both?", placeholder="e.g., Both — mechanism + clinical landscape"),
+        ClarifyQuestion(id="comparators", question="Are there specific GLP-1 agonists to compare (semaglutide, exenatide, liraglutide), or assess the class broadly?", placeholder="e.g., Focus on semaglutide vs exenatide"),
+    ],
+    "pcsk9": [
+        ClarifyQuestion(id="indication", question="Which cardiovascular indication — hypercholesterolemia, atherosclerotic CVD, or familial hypercholesterolemia?", placeholder="e.g., ASCVD risk reduction"),
+        ClarifyQuestion(id="modality", question="Should the analysis cover all modalities (mAb, siRNA, small molecule) or focus on one?", placeholder="e.g., Compare mAb vs siRNA approaches"),
+        ClarifyQuestion(id="evidence", question="Prioritize genetic evidence (Mendelian randomization, LoF variants) or clinical outcomes data?", placeholder="e.g., Both genetic + clinical"),
+    ],
+    "kras": [
+        ClarifyQuestion(id="mutation", question="Confirm the target mutation — KRAS G12C specifically, or include G12D/G12V?", placeholder="e.g., G12C only, NSCLC context"),
+        ClarifyQuestion(id="focus", question="Should the analysis prioritize PK optimization, selectivity, or resistance mechanism coverage?", placeholder="e.g., PK + resistance mechanisms"),
+        ClarifyQuestion(id="modality", question="Small molecule covalent inhibitors only, or include PROTACs and combination strategies?", placeholder="e.g., Covalent inhibitors + combo strategies"),
+    ],
+    "default": [
+        ClarifyQuestion(id="scope", question="What is the primary goal — target validation, drug design, safety assessment, or a full pipeline review?", placeholder="e.g., Full pipeline from target to candidate"),
+        ClarifyQuestion(id="indication", question="Is there a specific disease indication or therapeutic area to focus on?", placeholder="e.g., Oncology, rare disease, neurodegeneration"),
+        ClarifyQuestion(id="constraints", question="Any modality or approach preferences (small molecule, biologic, gene therapy)?", placeholder="e.g., Small molecule preferred"),
+    ],
+}
+
+
+def _get_mock_questions(query: str) -> list[ClarifyQuestion]:
+    """Return mock clarifying questions based on query keywords."""
+    q = query.lower()
+    if "glp1r" in q or "glp-1" in q or "semaglutide" in q or "parkinson" in q:
+        return _MOCK_CLARIFY["glp1r"]
+    elif "pcsk9" in q or "cardiovascular" in q or "cholesterol" in q:
+        return _MOCK_CLARIFY["pcsk9"]
+    elif "kras" in q or "g12c" in q:
+        return _MOCK_CLARIFY["kras"]
+    return _MOCK_CLARIFY["default"]
+
+
+async def _get_live_questions(query: str) -> list[ClarifyQuestion]:
+    """Use Haiku to generate clarifying questions for a research query."""
+    try:
+        from src.utils.llm import LLMClient, ModelTier
+        import json as _json
+
+        llm = LLMClient()
+        response = await llm.chat(
+            messages=[{"role": "user", "content": (
+                f"A researcher submitted this query to a drug discovery AI system:\n\n"
+                f"\"{query}\"\n\n"
+                f"Generate exactly 3 brief clarifying questions to refine scope before running the analysis. "
+                f"Return ONLY a JSON array of objects with keys: \"id\" (short snake_case), \"question\", \"placeholder\" (example answer).\n"
+                f"Focus on: target specifics, disease stage/indication, and analysis scope/modality preferences."
+            )}],
+            model=ModelTier.HAIKU,
+            system="You are a drug discovery research assistant. Return only valid JSON, no markdown fences.",
+        )
+        text = "".join(b.text for b in response.content if hasattr(b, "text"))
+        # Parse JSON
+        cleaned = text.strip()
+        if cleaned.startswith("```"):
+            lines = cleaned.split("\n")
+            lines = [l for l in lines if not l.strip().startswith("```")]
+            cleaned = "\n".join(lines).strip()
+        questions_data = _json.loads(cleaned)
+        return [ClarifyQuestion(**q) for q in questions_data[:3]]
+    except Exception as exc:
+        log.warning("Failed to generate live clarifying questions: %s — using defaults", exc)
+        return _get_mock_questions(query)
+
+
+@router.post("/{chat_id}/clarify")
+async def clarify(chat_id: str, req: ClarifyRequest) -> ClarifyResponse:
+    """Generate clarifying questions for a research query before pipeline execution."""
+    log.info("clarify chat_id=%s mode=%s query=%s", chat_id, req.mode, req.query[:80])
+    if chat_id not in _chats:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    if req.mode == "live":
+        questions = await _get_live_questions(req.query)
+    else:
+        questions = _get_mock_questions(req.query)
+
+    return ClarifyResponse(
+        questions=questions,
+        context_summary=f"Analyzing: {req.query[:200]}",
+    )
 
 
 @router.get("")
@@ -417,19 +531,70 @@ async def create_chat(req: CreateChatRequest) -> Chat:
 
 @router.get("/{chat_id}")
 async def get_chat(chat_id: str) -> Chat:
-    from fastapi import HTTPException
     if chat_id not in _chats:
         raise HTTPException(status_code=404, detail="Chat not found")
     return _chats[chat_id]
 
 
+async def _stream_live(chat: Chat, msg_id: str, query: str):
+    """Stream real pipeline events via asyncio.Queue bridge."""
+    queue: asyncio.Queue = asyncio.Queue()
+
+    async def on_event(event_type: str, data: dict):
+        data["message_id"] = msg_id
+        data["type"] = event_type
+        await queue.put(data)
+
+    async def run_pipeline():
+        try:
+            from src.orchestrator.pipeline import run_yohas_pipeline
+            report = await run_yohas_pipeline(
+                user_query=query,
+                dynamic=True,
+                sublab_hint=chat.sublab,
+                on_event=on_event,
+                enable_world_model=False,
+                cost_ceiling=25.0,
+            )
+            # Store the completed message
+            content = report.living_document_markdown or report.executive_summary
+            assistant_msg = Message(
+                id=msg_id, role=Role.ASSISTANT, content=content,
+            )
+            chat.messages.append(assistant_msg)
+            chat.updated_at = datetime.now(timezone.utc)
+        except Exception as exc:
+            log.exception("Live pipeline failed: %s", exc)
+            await on_event("text_delta", {"delta": "\n\n**Pipeline error:** An internal error occurred. Please try again."})
+        finally:
+            await queue.put(None)  # sentinel
+
+    task = asyncio.create_task(run_pipeline())
+
+    try:
+        while True:
+            item = await queue.get()
+            if item is None:
+                break
+            yield f"data: {json.dumps(item, default=str)}\n\n"
+    finally:
+        if not task.done():
+            task.cancel()
+
+    yield f"data: {json.dumps({'type': 'done', 'message_id': msg_id})}\n\n"
+
+
 @router.post("/{chat_id}/messages")
 async def send_message(chat_id: str, req: SendMessageRequest) -> StreamingResponse:
-    log.info("send_message chat_id=%s content=%s", chat_id, req.content[:80])
+    log.info("send_message chat_id=%s mode=%s content=%s", chat_id, req.mode, req.content[:80])
+    if chat_id not in _chats:
+        raise HTTPException(status_code=404, detail="Chat not found")
     chat = _chats[chat_id]
     last = chat.messages[-1] if chat.messages else None
     if not last or last.role != Role.USER or last.content != req.content:
         user_msg = Message(id=str(uuid.uuid4())[:8], role=Role.USER, content=req.content)
         chat.messages.append(user_msg)
     msg_id = str(uuid.uuid4())[:8]
+    if req.mode == "live":
+        return StreamingResponse(_stream_live(chat, msg_id, req.content), media_type="text/event-stream")
     return StreamingResponse(_stream_mock(chat, msg_id), media_type="text/event-stream")
