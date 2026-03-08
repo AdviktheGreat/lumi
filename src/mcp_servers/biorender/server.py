@@ -1,7 +1,7 @@
 """
 BioRender MCP Server -- Lumi Virtual Lab
 
-Scientific figure generation for the YOHAS pipeline.  Combines two backends:
+Scientific figure generation for the YOHAS pipeline.  Combines three backends:
 
 1. **AntV MCP Server Chart** (primary) -- programmatic chart generation via
    ``@antv/mcp-server-chart`` running as a local stdio subprocess.  Returns
@@ -11,9 +11,14 @@ Scientific figure generation for the YOHAS pipeline.  Combines two backends:
    the BioRender public catalogue.  Returns direct links into the BioRender
    web editor for manual polish of publication-ready illustrations.
 
+3. **MockFlow IdeaBoard MCP** (supplementary) -- interactive diagram generation
+   via MockFlow's HTTP/SSE MCP endpoint.  Provides bio diagrams with domain-
+   specific icons, structured flowcharts with spatial positioning, mind maps,
+   data tables, and Gantt charts -- capabilities that AntV does not cover.
+
 Agents call high-level scientific figure tools (e.g. ``generate_volcano_plot``,
-``generate_pathway_diagram``) which translate domain data into AntV schemas
-internally.
+``generate_pathway_diagram``, ``generate_bio_diagram``) which translate domain
+data into backend-specific schemas internally.
 
 Start with:  python -m src.mcp_servers.biorender.server
 Requires:    Node.js / npx on PATH, ``mcp`` Python package
@@ -22,6 +27,7 @@ Requires:    Node.js / npx on PATH, ``mcp`` Python package
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 from typing import Any
@@ -97,6 +103,106 @@ async def _call_antv(tool_name: str, args: dict[str, Any]) -> str | None:
             urls = re.findall(r"https?://[^\s\)\"']+", block.text)
             if urls:
                 return urls[0]
+    return None
+
+
+# ---------------------------------------------------------------------------
+# MockFlow session management (HTTP/SSE transport)
+# ---------------------------------------------------------------------------
+
+_mockflow_client: Any | None = None
+_mockflow_lock = asyncio.Lock()
+
+MOCKFLOW_URL = "https://app.mockflow.com/ideaboard/mcp"
+
+
+def _parse_sse_data(text: str) -> dict | None:
+    """Extract JSON payload from an SSE event stream response."""
+    for line in text.strip().split("\n"):
+        line = line.strip()
+        if line.startswith("data:"):
+            payload = line[len("data:"):].strip()
+            try:
+                return json.loads(payload)
+            except json.JSONDecodeError:
+                continue
+    # Fallback: try parsing the entire response as JSON
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return None
+
+
+async def _get_mockflow_client():
+    """Return (or create) a long-lived httpx.AsyncClient for MockFlow MCP calls."""
+    global _mockflow_client
+
+    if _mockflow_client is not None:
+        return _mockflow_client
+
+    async with _mockflow_lock:
+        if _mockflow_client is not None:
+            return _mockflow_client
+
+        import httpx
+
+        client = httpx.AsyncClient(timeout=60)
+
+        # MCP initialize handshake
+        resp = await client.post(MOCKFLOW_URL, json={
+            "jsonrpc": "2.0", "id": 0, "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-03-26",
+                "capabilities": {},
+                "clientInfo": {"name": "lumi-biorender-server", "version": "1.0.0"},
+            },
+        }, headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+        })
+        data = _parse_sse_data(resp.text)
+        if not data or "result" not in data:
+            raise ConnectionError("MockFlow MCP initialization failed")
+
+        logger.info("MockFlow IdeaBoard MCP connected: %s",
+                     data["result"]["serverInfo"])
+        _mockflow_client = client
+        return _mockflow_client
+
+
+async def _call_mockflow(tool_name: str, args: dict[str, Any]) -> dict[str, Any] | None:
+    """Call a MockFlow MCP tool via JSON-RPC over HTTP/SSE.
+
+    Returns the parsed response dict which typically contains:
+      - url: interactive board URL
+      - thumbnailUrl: direct image URL (when authenticated)
+      - success: bool
+    """
+    client = await _get_mockflow_client()
+
+    resp = await client.post(MOCKFLOW_URL, json={
+        "jsonrpc": "2.0",
+        "id": hash(tool_name) % 100000,
+        "method": "tools/call",
+        "params": {"name": tool_name, "arguments": args},
+    }, headers={
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+    })
+
+    data = _parse_sse_data(resp.text)
+    if data and "result" in data:
+        for block in data["result"].get("content", []):
+            if block.get("type") == "text":
+                text = block["text"]
+                try:
+                    return json.loads(text)
+                except json.JSONDecodeError:
+                    urls = re.findall(r"https?://[^\s\)\"']+", text)
+                    return {"url": urls[0] if urls else text}
+
+    if data and "error" in data:
+        raise RuntimeError(f"MockFlow error: {data['error']}")
     return None
 
 
@@ -739,6 +845,218 @@ async def download_figure(
         )
     except Exception as exc:
         return handle_error("download_figure", exc)
+
+
+# ===================================================================
+# MockFlow-backed tools (bio diagrams, flowcharts, mind maps, etc.)
+# ===================================================================
+
+
+@mcp.tool()
+async def generate_bio_diagram(
+    nodes: list[dict[str, Any]],
+    edges: list[dict[str, str]],
+    title: str = "Biological Diagram",
+    width: int = _DEFAULT_WIDTH,
+    height: int = _DEFAULT_HEIGHT,
+) -> dict[str, Any]:
+    """Generate a biological/medical diagram with domain-specific icons.
+
+    Uses MockFlow's bio category which matches node *matchKey* values to
+    scientific icons (receptor, membrane, dna, antibody, kinase, etc.).
+
+    *nodes*: list of ``{"text": "...", "matchKey": "...", "color": "#hex",
+                         "x": int, "y": int}``
+        matchKey examples: receptor, membrane, dna, antibody, endocytosis,
+        lysosome, apoptosis, mitochondria, ribosome, nucleus, cell, neuron
+
+    *edges*: list of ``{"source_idx": int, "target_idx": int, "label": "..."}``
+    """
+    try:
+        result = await _call_mockflow("render_flowchart", {
+            "nodes": nodes,
+            "edges": edges,
+            "title": title,
+            "category": "bio",
+            "width": width,
+            "height": height,
+        })
+
+        return standard_response(
+            summary=f"Bio diagram: {len(nodes)} components, {len(edges)} connections",
+            raw_data={
+                "board_url": result.get("url") if result else None,
+                "thumbnail_url": result.get("thumbnailUrl") if result else None,
+                "image_url": (result.get("thumbnailUrl") or result.get("url")) if result else None,
+                "node_count": len(nodes),
+                "edge_count": len(edges),
+            },
+            source="mockflow_ideaboard",
+            source_id="generate_bio_diagram",
+        )
+    except Exception as exc:
+        return handle_error("generate_bio_diagram", exc)
+
+
+@mcp.tool()
+async def generate_signaling_flowchart(
+    nodes: list[dict[str, Any]],
+    edges: list[dict[str, str]],
+    title: str = "Signaling Pathway",
+    style: str = "default",
+    width: int = _DEFAULT_WIDTH,
+    height: int = _DEFAULT_HEIGHT,
+) -> dict[str, Any]:
+    """Generate a structured signaling pathway as a flowchart.
+
+    Unlike :func:`generate_pathway_diagram` (AntV network graph with auto-layout),
+    this creates a spatially organized flowchart with explicit positioning,
+    colored nodes, labeled edges, and decision diamonds.
+
+    *nodes*: list of ``{"text": "...", "shape": "...", "color": "#hex",
+                         "x": int, "y": int}``
+        shape options: Rectangle, Diamond, Circle, RoundedRectangle
+
+    *edges*: list of ``{"source_idx": int, "target_idx": int, "label": "..."}``
+
+    *style*: ``"default"`` (clean), ``"sketchy"`` (hand-drawn), ``"3d"`` (isometric)
+    """
+    try:
+        result = await _call_mockflow("render_flowchart", {
+            "nodes": nodes,
+            "edges": edges,
+            "title": title,
+            "style": style,
+            "width": width,
+            "height": height,
+        })
+
+        return standard_response(
+            summary=f"Signaling flowchart: {len(nodes)} nodes, {len(edges)} edges",
+            raw_data={
+                "board_url": result.get("url") if result else None,
+                "thumbnail_url": result.get("thumbnailUrl") if result else None,
+                "image_url": (result.get("thumbnailUrl") or result.get("url")) if result else None,
+                "node_count": len(nodes),
+                "edge_count": len(edges),
+                "style": style,
+            },
+            source="mockflow_ideaboard",
+            source_id="generate_signaling_flowchart",
+        )
+    except Exception as exc:
+        return handle_error("generate_signaling_flowchart", exc)
+
+
+@mcp.tool()
+async def generate_experiment_mindmap(
+    root_topic: str,
+    branches: list[dict[str, Any]],
+    title: str = "Experiment Overview",
+) -> dict[str, Any]:
+    """Generate a mind map for experiment planning or result overview.
+
+    *branches*: list of ``{"topic": "...", "direction": 0|1, "children": [...]}``
+        direction: 0 = left, 1 = right (for visual balance)
+        children: nested list of ``{"topic": "..."}`` sub-branches
+    """
+    try:
+        result = await _call_mockflow("render_mindmap", {
+            "root": root_topic,
+            "branches": branches,
+            "title": title,
+        })
+
+        branch_count = len(branches)
+        child_count = sum(len(b.get("children", [])) for b in branches)
+        return standard_response(
+            summary=f"Mind map: '{root_topic}' with {branch_count} branches, {child_count} sub-topics",
+            raw_data={
+                "board_url": result.get("url") if result else None,
+                "thumbnail_url": result.get("thumbnailUrl") if result else None,
+                "image_url": (result.get("thumbnailUrl") or result.get("url")) if result else None,
+                "root_topic": root_topic,
+                "branch_count": branch_count,
+                "child_count": child_count,
+            },
+            source="mockflow_ideaboard",
+            source_id="generate_experiment_mindmap",
+        )
+    except Exception as exc:
+        return handle_error("generate_experiment_mindmap", exc)
+
+
+@mcp.tool()
+async def generate_data_table(
+    headers: list[str],
+    rows: list[list[str]],
+    title: str = "Data Table",
+) -> dict[str, Any]:
+    """Generate a formatted data table visualization.
+
+    Returns an interactive MockFlow board with the table.  Useful for
+    presenting target comparison matrices, clinical trial summaries,
+    or pipeline result tables in a visual format.
+
+    *headers*: column header labels
+    *rows*: list of rows, each row is a list of cell values (strings)
+    """
+    try:
+        result = await _call_mockflow("render_spreadsheet", {
+            "headers": headers,
+            "rows": rows,
+            "title": title,
+        })
+
+        return standard_response(
+            summary=f"Data table: {len(headers)} columns x {len(rows)} rows",
+            raw_data={
+                "board_url": result.get("url") if result else None,
+                "thumbnail_url": result.get("thumbnailUrl") if result else None,
+                "image_url": (result.get("thumbnailUrl") or result.get("url")) if result else None,
+                "columns": len(headers),
+                "row_count": len(rows),
+            },
+            source="mockflow_ideaboard",
+            source_id="generate_data_table",
+        )
+    except Exception as exc:
+        return handle_error("generate_data_table", exc)
+
+
+@mcp.tool()
+async def generate_pipeline_gantt(
+    phases: list[dict[str, Any]],
+    tasks: list[dict[str, Any]],
+    title: str = "Pipeline Timeline",
+) -> dict[str, Any]:
+    """Generate a Gantt chart for drug discovery pipeline milestones.
+
+    *phases*: list of ``{"name": "...", "color": "#hex"}``
+    *tasks*: list of ``{"name": "...", "phase": "...", "start": "YYYY-MM-DD",
+                         "end": "YYYY-MM-DD"}``
+    """
+    try:
+        result = await _call_mockflow("render_gantt", {
+            "phases": phases,
+            "tasks": tasks,
+            "title": title,
+        })
+
+        return standard_response(
+            summary=f"Gantt chart: {len(phases)} phases, {len(tasks)} tasks",
+            raw_data={
+                "board_url": result.get("url") if result else None,
+                "thumbnail_url": result.get("thumbnailUrl") if result else None,
+                "image_url": (result.get("thumbnailUrl") or result.get("url")) if result else None,
+                "phase_count": len(phases),
+                "task_count": len(tasks),
+            },
+            source="mockflow_ideaboard",
+            source_id="generate_pipeline_gantt",
+        )
+    except Exception as exc:
+        return handle_error("generate_pipeline_gantt", exc)
 
 
 # ---------------------------------------------------------------------------
