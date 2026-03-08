@@ -5,12 +5,16 @@ Provides:
 - ``LLMClient`` — stateful async client with tool-calling support,
   automatic retry with exponential backoff, and integrated cost tracking.
 - ``call_llm`` — simple one-shot helper kept for convenience.
+- ``ConcurrencyGate`` — shared semaphore + jitter to prevent API overload
+  when 15-30 agents call the API simultaneously.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
+import random
 from collections import defaultdict
 from enum import Enum
 from typing import Any, Awaitable, Callable, Optional
@@ -56,6 +60,79 @@ _TASK_ROUTING: dict[str, ModelTier] = {
     "briefing":    ModelTier.HAIKU,
     "search":      ModelTier.HAIKU,
 }
+
+
+# ---------------------------------------------------------------------------
+# Concurrency gate — prevents API overload from parallel agents
+# ---------------------------------------------------------------------------
+
+class ConcurrencyGate:
+    """Process-wide concurrency limiter for Anthropic API calls.
+
+    When 15-30 agents fire ``asyncio.gather`` simultaneously, they can
+    exceed API rate limits or cause connection pool exhaustion.  This
+    gate ensures at most ``max_concurrent`` requests are in-flight at
+    any time, with a small random jitter to desynchronise bursts.
+
+    Usage:
+        The gate is a module-level singleton (``_GLOBAL_GATE``).
+        ``LLMClient`` acquires it before every API call automatically.
+    """
+
+    def __init__(self, max_concurrent: int = 5, jitter_seconds: float = 0.5) -> None:
+        self.max_concurrent = max_concurrent
+        self.jitter_seconds = jitter_seconds
+        self._semaphore: asyncio.Semaphore | None = None
+        self._in_flight: int = 0
+        self._total_waited: float = 0.0
+
+    @property
+    def semaphore(self) -> asyncio.Semaphore:
+        """Lazy init — must be created inside a running event loop."""
+        if self._semaphore is None:
+            self._semaphore = asyncio.Semaphore(self.max_concurrent)
+        return self._semaphore
+
+    async def acquire(self) -> None:
+        """Acquire a slot, adding jitter if the gate is >50% utilised."""
+        if self._in_flight > self.max_concurrent // 2:
+            jitter = random.uniform(0.05, self.jitter_seconds)
+            self._total_waited += jitter
+            logger.debug(
+                "ConcurrencyGate: %d/%d in-flight, adding %.2fs jitter",
+                self._in_flight,
+                self.max_concurrent,
+                jitter,
+            )
+            await asyncio.sleep(jitter)
+
+        await self.semaphore.acquire()
+        self._in_flight += 1
+
+    def release(self) -> None:
+        """Release a slot back to the pool."""
+        self._in_flight -= 1
+        self.semaphore.release()
+
+    @property
+    def stats(self) -> dict[str, Any]:
+        return {
+            "max_concurrent": self.max_concurrent,
+            "in_flight": self._in_flight,
+            "total_jitter_waited": round(self._total_waited, 2),
+        }
+
+
+# Module-level singleton — shared by ALL LLMClient instances
+_GLOBAL_GATE = ConcurrencyGate(
+    max_concurrent=int(os.environ.get("LUMI_MAX_CONCURRENT_LLM", "5")),
+    jitter_seconds=float(os.environ.get("LUMI_LLM_JITTER", "0.5")),
+)
+
+
+def get_concurrency_gate() -> ConcurrencyGate:
+    """Return the process-wide concurrency gate (for monitoring/tuning)."""
+    return _GLOBAL_GATE
 
 
 # ---------------------------------------------------------------------------
@@ -214,7 +291,15 @@ class LLMClient:
         if tools is not None:
             kwargs["tools"] = tools
 
-        response = await self._client.messages.create(**kwargs)
+        # Acquire the global concurrency gate to prevent API overload
+        # when many agents call simultaneously
+        gate = _GLOBAL_GATE
+        await gate.acquire()
+        try:
+            response = await self._client.messages.create(**kwargs)
+        finally:
+            gate.release()
+
         self._record_usage(model, response.usage)
         return response
 
