@@ -13,7 +13,7 @@ import { IntegrationCard } from "@/components/chat/integration-card";
 import { AgentsPanel } from "@/components/panels/agents-panel";
 import { PlanPanel } from "@/components/panels/plan-panel";
 import { ToolsPanel } from "@/components/panels/tools-panel";
-import { Send, PanelRightOpen, PanelRightClose, FlaskConical, Settings, User } from "lucide-react";
+import { Send, PanelRightOpen, PanelRightClose, FlaskConical, Settings, User, ChevronRight } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import clsx from "clsx";
@@ -35,8 +35,10 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
   const [streaming, setStreaming] = useState(false);
   const [streamText, setStreamText] = useState("");
   const [liveEvents, setLiveEvents] = useState<LiveEvent[]>([]);
-  const [liveTraces, setLiveTraces] = useState<AgentTrace[]>([]);
   const [rightOpen, setRightOpen] = useState(true);
+  const [pipelineOpen, setPipelineOpen] = useState(true);
+  const [agentsOpen, setAgentsOpen] = useState(true);
+  const [toolsOpen, setToolsOpen] = useState(true);
   const [clarifyQuestions, setClarifyQuestions] = useState<ClarifyQuestion[] | null>(null);
   const [pendingQuery, setPendingQuery] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -58,8 +60,10 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
       // Fetch clarifying questions before starting the pipeline
       api.clarify(chatId, query, mode).then((res) => {
         if (res.questions.length > 0) {
-          setPendingQuery(query);
-          setClarifyQuestions(res.questions);
+          setTimeout(() => {
+            setPendingQuery(query);
+            setClarifyQuestions(res.questions);
+          }, 1200);
         } else {
           runStream(query);
         }
@@ -75,23 +79,14 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
     setStreaming(true);
     setStreamText("");
     setLiveEvents([]);
-    setLiveTraces([]);
 
     try {
     for await (const event of api.sendMessage(chatId, content, mode)) {
       switch (event.type) {
         case "trace_start":
-          setLiveTraces((prev) => [...prev, event.trace]);
           setLiveEvents((prev) => [...prev, { kind: "trace", trace: event.trace }]);
           break;
         case "tool_call":
-          setLiveTraces((prev) =>
-            prev.map((t) =>
-              t.agent_id === event.agent_id
-                ? { ...t, tools_called: [...t.tools_called, event.tool] }
-                : t
-            )
-          );
           setLiveEvents((prev) =>
             prev.map((e) =>
               e.kind === "trace" && e.trace.agent_id === event.agent_id
@@ -101,9 +96,6 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
           );
           break;
         case "trace_complete":
-          setLiveTraces((prev) =>
-            prev.map((t) => (t.agent_id === event.trace.agent_id ? event.trace : t))
-          );
           setLiveEvents((prev) =>
             prev.map((e) =>
               e.kind === "trace" && e.trace.agent_id === event.trace.agent_id
@@ -114,20 +106,12 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
           break;
         case "hitl_flag": {
           setLiveEvents((prev) => [...prev, { kind: "hitl_flag", hitl: event.hitl }]);
-          // Open HITL review in a new tab
-          const hitlParams = new URLSearchParams({
-            finding: event.hitl.finding,
-            agent: event.hitl.agent_id,
-            confidence: String(event.hitl.confidence_score),
-            reason: event.hitl.reason,
-          });
-          window.open(`/hitl?${hitlParams.toString()}`, "_blank");
           break;
         }
         case "hitl_resolved":
           setLiveEvents((prev) =>
             prev.map((e) =>
-              e.kind === "hitl_flag" && e.hitl.agent_id === event.hitl.agent_id
+              e.kind === "hitl_flag" && e.hitl.finding_id === event.hitl.finding_id
                 ? { kind: "hitl_resolved", hitl: event.hitl }
                 : e
             )
@@ -190,6 +174,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
       agent_traces: [],
       hitl_events: [],
       integration_events: [],
+      expert_review_messages: [],
       sublab: null,
     };
     setChat((prev) => prev ? { ...prev, messages: [...prev.messages, userMsg] } : prev);
@@ -198,6 +183,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
     try {
       const res = await api.clarify(chatId, text, mode);
       if (res.questions.length > 0) {
+        await new Promise((r) => setTimeout(r, 1200));
         setPendingQuery(text);
         setClarifyQuestions(res.questions);
         return;
@@ -238,16 +224,16 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
   return (
     <div className="flex h-screen overflow-hidden">
       {/* Left sidebar */}
-      <aside className="w-64 shrink-0 bg-[var(--sidebar-bg)] flex flex-col">
-        <div className="p-4 border-b border-[var(--sidebar-hover)]">
-          <a href="/" className="text-sm font-semibold text-white tracking-tight hover:opacity-80 transition-opacity">
+      <aside className="w-64 shrink-0 border-r border-[var(--border)] bg-[var(--bg-card)] flex flex-col">
+        <div className="p-4 border-b border-[var(--border)]">
+          <a href="/" className="text-sm font-semibold text-[var(--text)] tracking-tight hover:opacity-80 transition-opacity">
             Lumi
           </a>
         </div>
         <ChatList chats={chats} activeChatId={chatId} />
         {/* User & Settings */}
-        <div className="shrink-0 border-t border-[var(--sidebar-hover)] p-3 space-y-0.5">
-          <button className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs text-[var(--sidebar-text)] transition-all hover:bg-[var(--sidebar-hover)]">
+        <div className="shrink-0 border-t border-[var(--border)] p-3 space-y-0.5">
+          <button className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs text-[var(--text-muted)] transition-all hover:bg-[var(--bg-hover)]">
             <Settings size={14} className="opacity-50" />
             Settings
           </button>
@@ -256,8 +242,8 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
               <User size={12} />
             </div>
             <div className="min-w-0">
-              <p className="truncate text-xs font-medium text-white">John Doe</p>
-              <p className="text-[10px] text-[var(--sidebar-text-muted)]">Computational Biology</p>
+              <p className="truncate text-xs font-medium text-[var(--text)]">John Doe</p>
+              <p className="text-[10px] text-[var(--text-muted)]">Computational Biology</p>
             </div>
           </div>
         </div>
@@ -321,9 +307,23 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                 {/* HITL events */}
                 {liveHitlEvents.length > 0 && (
                   <div className="space-y-2">
-                    {liveHitlEvents.map((e, i) => (
-                      <HitlCard key={`h-${i}`} hitl={e.hitl} />
-                    ))}
+                    {liveHitlEvents.map((e, i) => {
+                      const params = new URLSearchParams({
+                        finding: e.hitl.finding,
+                        agent: e.hitl.agent_id,
+                        confidence: String(e.hitl.confidence_score),
+                        reason: e.hitl.reason,
+                        finding_id: e.hitl.finding_id || "review_001",
+                        chat_id: chatId,
+                      });
+                      return (
+                        <HitlCard
+                          key={`h-${i}`}
+                          hitl={e.hitl}
+                          reviewUrl={e.hitl.status === "pending" ? `/review?${params.toString()}` : undefined}
+                        />
+                      );
+                    })}
                   </div>
                 )}
 
@@ -395,22 +395,58 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
         )}
       >
         <div className="w-80 flex flex-col h-full overflow-y-auto">
-          {/* Plan */}
-          <div className="p-4 border-b border-[var(--border)]">
-            <p className="text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)] mb-3">Pipeline</p>
-            <PlanPanel liveTraces={liveTraces} streaming={streaming} />
+          {/* Pipeline */}
+          <div className="border-b border-[var(--border)]">
+            <button
+              onClick={() => setPipelineOpen(!pipelineOpen)}
+              className="flex w-full items-center gap-1.5 p-4 pb-2 text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+            >
+              <ChevronRight size={12} className={clsx("transition-transform duration-200", pipelineOpen && "rotate-90")} />
+              Pipeline
+            </button>
+            <div className={clsx("grid transition-[grid-template-rows] duration-200 ease-out", pipelineOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
+              <div className="overflow-hidden">
+                <div className="px-4 pb-4 pt-1">
+                  <PlanPanel liveTraces={liveTracesFromEvents} streaming={streaming} />
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Agents */}
-          <div className="p-4 border-b border-[var(--border)]">
-            <p className="text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)] mb-3">Agents</p>
-            <AgentsPanel sublab={chat.sublab} liveTraces={liveTraces} />
+          <div className="border-b border-[var(--border)]">
+            <button
+              onClick={() => setAgentsOpen(!agentsOpen)}
+              className="flex w-full items-center gap-1.5 p-4 pb-2 text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+            >
+              <ChevronRight size={12} className={clsx("transition-transform duration-200", agentsOpen && "rotate-90")} />
+              Agents
+            </button>
+            <div className={clsx("grid transition-[grid-template-rows] duration-200 ease-out", agentsOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
+              <div className="overflow-hidden">
+                <div className="px-4 pb-4 pt-1">
+                  <AgentsPanel sublab={chat.sublab} liveTraces={liveTracesFromEvents} />
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Tools */}
-          <div className="p-4">
-            <p className="text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)] mb-3">Tools</p>
-            <ToolsPanel />
+          <div>
+            <button
+              onClick={() => setToolsOpen(!toolsOpen)}
+              className="flex w-full items-center gap-1.5 p-4 pb-2 text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+            >
+              <ChevronRight size={12} className={clsx("transition-transform duration-200", toolsOpen && "rotate-90")} />
+              Tools
+            </button>
+            <div className={clsx("grid transition-[grid-template-rows] duration-200 ease-out", toolsOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
+              <div className="overflow-hidden">
+                <div className="px-4 pb-4 pt-1">
+                  <ToolsPanel />
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </aside>
