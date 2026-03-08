@@ -1,0 +1,193 @@
+"""
+System Factory -- creates and wires the complete Lumi Virtual Lab agent swarm.
+
+This module solves the three integration gaps:
+
+1. **Tool callables**: Agents define tool schemas but have empty
+   ``_tool_registry`` dicts.  We use :func:`wire_agent_tools` from
+   :mod:`src.mcp_bridge` to populate them with the actual MCP server
+   functions.
+
+2. **Specialist assignment**: Division leads are created with
+   ``specialist_agents=[]``.  We explicitly create all specialists and
+   pass them to the division factories.
+
+3. **Divisions dict**: The CSO pipeline expects a ``divisions`` dict
+   mapping division names to :class:`DivisionLead` instances.
+   :func:`create_system` builds and returns exactly that.
+
+Usage::
+
+    from src.factory import create_system
+    divisions = create_system()
+    # Pass to the pipeline:
+    report = await run_yohas_pipeline("Evaluate BRCA1 as target", divisions=divisions)
+"""
+
+from __future__ import annotations
+
+import logging
+
+from src.agents.base_agent import BaseAgent
+from src.divisions.base_lead import DivisionLead
+from src.mcp_bridge import wire_agent_tools
+
+# -- All agent factories ------------------------------------------------
+from src.agents import (
+    create_statistical_genetics_agent,
+    create_functional_genomics_agent,
+    create_single_cell_atlas_agent,
+    create_bio_pathways_agent,
+    create_fda_safety_agent,
+    create_toxicogenomics_agent,
+    create_target_biologist_agent,
+    create_pharmacologist_agent,
+    create_protein_intelligence_agent,
+    create_antibody_engineer_agent,
+    create_structure_design_agent,
+    create_lead_optimization_agent,
+    create_developability_agent,
+    create_clinical_trialist_agent,
+    create_literature_synthesis_agent,
+    create_assay_design_agent,
+    create_dual_use_screening_agent,
+)
+
+# -- All division factories ---------------------------------------------
+from src.divisions import (
+    create_target_id_lead,
+    create_target_safety_lead,
+    create_modality_lead,
+    create_molecular_design_lead,
+    create_clinical_lead,
+    create_compbio_lead,
+    create_experimental_lead,
+    create_biosecurity_lead,
+)
+
+logger = logging.getLogger("lumi.factory")
+
+
+def create_system() -> dict[str, DivisionLead]:
+    """Create the fully wired Lumi Virtual Lab agent swarm.
+
+    This is the single entry-point for bootstrapping the entire system.
+    It performs three steps in order:
+
+    1. **Create specialist agents** -- instantiate all 17 specialists via
+       their factory functions.
+    2. **Wire tool callables** -- for every specialist, match tool schema
+       names against the master :data:`~src.mcp_bridge.TOOL_REGISTRY` and
+       register the corresponding callables so that LLM-generated
+       ``tool_use`` blocks resolve to real function calls.
+    3. **Create division leads** -- instantiate each of the 8 division
+       leads with their specialist rosters already populated.
+
+    Returns:
+        A dict mapping division names to fully populated
+        :class:`DivisionLead` instances, keyed exactly as the CSO
+        orchestrator expects::
+
+            {
+                "Target Identification": <DivisionLead>,
+                "Target Safety":         <DivisionLead>,
+                "Modality Selection":    <DivisionLead>,
+                "Molecular Design":      <DivisionLead>,
+                "Clinical Intelligence": <DivisionLead>,
+                "Computational Biology": <DivisionLead>,
+                "Experimental Design":   <DivisionLead>,
+                "Biosecurity":           <DivisionLead>,
+            }
+    """
+    logger.info("Creating Lumi Virtual Lab agent swarm...")
+
+    # ------------------------------------------------------------------
+    # Step 1: Create all specialist agents
+    # ------------------------------------------------------------------
+
+    # Division 1 -- Target Identification
+    stat_gen = create_statistical_genetics_agent()
+    func_gen = create_functional_genomics_agent()
+    sc_atlas = create_single_cell_atlas_agent()
+
+    # Division 2 -- Target Safety
+    bio_path = create_bio_pathways_agent()
+    fda_safe = create_fda_safety_agent()
+    toxicog = create_toxicogenomics_agent()
+
+    # Division 3 -- Modality Selection
+    tgt_bio = create_target_biologist_agent()
+    pharma = create_pharmacologist_agent()
+
+    # Division 4 -- Molecular Design
+    prot_intel = create_protein_intelligence_agent()
+    ab_eng = create_antibody_engineer_agent()
+    struct_des = create_structure_design_agent()
+    lead_opt = create_lead_optimization_agent()
+    develop = create_developability_agent()
+
+    # Division 5 -- Clinical Intelligence
+    clin_trial = create_clinical_trialist_agent()
+
+    # Division 6 -- Computational Biology
+    lit_synth = create_literature_synthesis_agent()
+
+    # Division 7 -- Experimental Design
+    assay_des = create_assay_design_agent()
+
+    # Division 8 -- Biosecurity
+    dual_use = create_dual_use_screening_agent()
+
+    all_agents: list[BaseAgent] = [
+        stat_gen, func_gen, sc_atlas,
+        bio_path, fda_safe, toxicog,
+        tgt_bio, pharma,
+        prot_intel, ab_eng, struct_des, lead_opt, develop,
+        clin_trial,
+        lit_synth,
+        assay_des,
+        dual_use,
+    ]
+
+    # ------------------------------------------------------------------
+    # Step 2: Wire MCP tool implementations into each agent
+    # ------------------------------------------------------------------
+
+    for agent in all_agents:
+        wire_agent_tools(agent)
+
+    logger.info("All %d specialist agents created and wired", len(all_agents))
+
+    # ------------------------------------------------------------------
+    # Step 3: Create division leads with their specialist rosters
+    # ------------------------------------------------------------------
+
+    divisions: dict[str, DivisionLead] = {
+        "Target Identification": create_target_id_lead(
+            specialist_agents=[stat_gen, func_gen, sc_atlas],
+        ),
+        "Target Safety": create_target_safety_lead(
+            specialist_agents=[bio_path, fda_safe, toxicog],
+        ),
+        "Modality Selection": create_modality_lead(
+            specialist_agents=[tgt_bio, pharma],
+        ),
+        "Molecular Design": create_molecular_design_lead(
+            specialist_agents=[prot_intel, ab_eng, struct_des, lead_opt, develop],
+        ),
+        "Clinical Intelligence": create_clinical_lead(
+            specialist_agents=[clin_trial],
+        ),
+        "Computational Biology": create_compbio_lead(
+            specialist_agents=[lit_synth],
+        ),
+        "Experimental Design": create_experimental_lead(
+            specialist_agents=[assay_des],
+        ),
+        "Biosecurity": create_biosecurity_lead(
+            specialist_agents=[dual_use],
+        ),
+    }
+
+    logger.info("All %d divisions created and populated", len(divisions))
+    return divisions

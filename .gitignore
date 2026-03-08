@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.env
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+data/metabolic_models/*.xml
+data/reference/*.fasta
+data/reference/*.obo
+data/reference/*.tsv
+*.db
+*.jsonl
+.ruff_cache/
+.pytest_cache/
