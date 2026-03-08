@@ -21,6 +21,13 @@ export function IntegrationCard({ call }: Props) {
       {call.detail && (
         <p className="mt-1 text-[11px] text-[var(--text-muted)] pl-[21px]">{call.detail}</p>
       )}
+      {call.image_url && (
+        <img
+          src={call.image_url}
+          alt={call.action}
+          className="mt-2 rounded-lg border border-[var(--border)] max-w-full"
+        />
+      )}
     </div>
   );
 }

@@ -164,7 +164,7 @@ export default function Landing() {
                 key={chip.id}
                 onClick={() => setSelectedSublab(selectedSublab === chip.id ? null : chip.id)}
                 className={clsx(
-                  "shrink-0 rounded-full border px-4 py-2 text-xs font-medium transition-all duration-200 hover:scale-[1.03] active:scale-[0.97] animate-slide-up",
+                  "shrink-0 rounded-full border px-4 py-2 text-xs font-medium transition-all duration-200 animate-slide-up",
                   selectedSublab === chip.id
                     ? "border-[var(--accent)] bg-[var(--accent-light)] text-[var(--accent-dark)] shadow-sm"
                     : "border-[var(--border)] bg-[var(--bg-card)] text-[var(--text-secondary)] hover:border-[var(--border-hover)] hover:bg-[var(--bg-hover)]"
@@ -179,7 +179,7 @@ export default function Landing() {
                 key={id}
                 onClick={() => setSelectedSublab(selectedSublab === id ? null : id)}
                 className={clsx(
-                  "shrink-0 rounded-full border px-4 py-2 text-xs font-medium transition-all duration-200 hover:scale-[1.03] active:scale-[0.97] animate-slide-up",
+                  "shrink-0 rounded-full border px-4 py-2 text-xs font-medium transition-all duration-200 animate-slide-up",
                   selectedSublab === id
                     ? "border-[var(--accent)] bg-[var(--accent-light)] text-[var(--accent-dark)] shadow-sm"
                     : "border-[var(--border)] bg-[var(--bg-card)] text-[var(--text-secondary)] hover:border-[var(--border-hover)] hover:bg-[var(--bg-hover)]"

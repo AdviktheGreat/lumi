@@ -65,7 +65,7 @@ export function AgentsPanel({ sublab, liveTraces }: Props) {
                 <div
                   key={agent.id}
                   className={clsx(
-                    "flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs transition-all duration-300 animate-slide-up",
+                    "flex items-start gap-2 rounded-lg px-2.5 py-1.5 text-xs transition-all duration-300 animate-slide-up",
                     live?.status === "running"
                       ? "bg-[var(--orange-bg)] shadow-sm"
                       : live?.status === "complete"
@@ -75,17 +75,24 @@ export function AgentsPanel({ sublab, liveTraces }: Props) {
                   style={{ animationDelay: `${idx * 50}ms` }}
                 >
                   {live?.status === "running" ? (
-                    <Loader2 size={12} className="shrink-0 text-[var(--orange)] animate-spin" />
+                    <Loader2 size={12} className="mt-0.5 shrink-0 text-[var(--orange)] animate-spin" />
                   ) : live?.status === "complete" ? (
-                    <CheckCircle2 size={12} className="shrink-0 text-[var(--green)] animate-scale-in" />
+                    <CheckCircle2 size={12} className="mt-0.5 shrink-0 text-[var(--green)] animate-scale-in" />
                   ) : (
-                    <span className="h-2 w-2 shrink-0 rounded-full bg-[var(--border)] transition-colors" />
+                    <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-[var(--border)] transition-colors" />
                   )}
 
-                  <span className="font-mono text-[11px]">{agent.id}</span>
+                  <div className="min-w-0 flex-1">
+                    <span className="font-mono text-[11px]">{agent.id}</span>
+                    {live?.message && (
+                      <p className="text-[10px] text-[var(--text-muted)] truncate leading-tight mt-0.5">
+                        {live.message.split("\n")[0]}
+                      </p>
+                    )}
+                  </div>
 
                   {live?.confidence_score !== undefined && live.confidence_score !== null && (
-                    <span className="ml-auto text-[10px] text-[var(--text-muted)] tabular-nums animate-fade-in">
+                    <span className="mt-0.5 ml-auto shrink-0 text-[10px] text-[var(--text-muted)] tabular-nums animate-fade-in">
                       {Math.round(live.confidence_score * 100)}%
                     </span>
                   )}

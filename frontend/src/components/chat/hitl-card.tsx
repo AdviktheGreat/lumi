@@ -1,11 +1,13 @@
 import type { HitlRequest } from "@/lib/types";
+import { ExternalLink } from "lucide-react";
 import clsx from "clsx";
 
 interface Props {
   hitl: HitlRequest;
+  reviewUrl?: string;
 }
 
-export function HitlCard({ hitl }: Props) {
+export function HitlCard({ hitl, reviewUrl }: Props) {
   const isPending = hitl.status === "pending";
   const isApproved = hitl.status === "approved";
 
@@ -54,15 +56,28 @@ export function HitlCard({ hitl }: Props) {
         <span>{hitl.reason}</span>
       </div>
 
-      {/* Pending animation — bouncing dots */}
+      {/* Pending — review button + routing indicator */}
       {isPending && (
-        <div className="mt-2.5 flex items-center gap-2">
-          <span className="flex items-center gap-1">
-            <span className="h-1.5 w-1.5 rounded-full bg-[var(--orange)] typing-dot" />
-            <span className="h-1.5 w-1.5 rounded-full bg-[var(--orange)] typing-dot" />
-            <span className="h-1.5 w-1.5 rounded-full bg-[var(--orange)] typing-dot" />
+        <div className="mt-2.5 flex items-center gap-3">
+          {reviewUrl && (
+            <a
+              href={reviewUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 rounded-md bg-[var(--orange)] px-3 py-1.5 text-[11px] font-semibold text-white transition-all hover:brightness-110 active:scale-95"
+            >
+              <ExternalLink size={12} />
+              View Review
+            </a>
+          )}
+          <span className="flex items-center gap-2">
+            <span className="flex items-center gap-1">
+              <span className="h-1.5 w-1.5 rounded-full bg-[var(--orange)] typing-dot" />
+              <span className="h-1.5 w-1.5 rounded-full bg-[var(--orange)] typing-dot" />
+              <span className="h-1.5 w-1.5 rounded-full bg-[var(--orange)] typing-dot" />
+            </span>
+            <span className="text-[11px] text-[var(--orange)]">Routing to domain expert...</span>
           </span>
-          <span className="text-[11px] text-[var(--orange)]">Routing to domain expert...</span>
         </div>
       )}
     </div>
