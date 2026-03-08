@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Lumi Report — {{ report.query_id }}</title>
+<style>
+  /* ---- Reset & Base ---- */
+  * { margin: 0; padding: 0; }
+  body {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 10pt;
+    line-height: 1.5;
+    color: #2c2c2c;
+    background: #fff;
+  }
+
+  /* ---- Page Container ---- */
+  @page { size: A4; margin: 20mm 18mm 20mm 18mm; }
+  .page { max-width: 750px; margin: 0 auto; padding: 0; }
+
+  /* ---- Header Banner ---- */
+  .header-banner {
+    background-color: #1B3A4B;
+    color: #ffffff;
+    padding: 24px 28px 18px 28px;
+    margin-bottom: 0;
+  }
+  .header-banner h1 {
+    font-size: 20pt;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    margin-bottom: 2px;
+    color: #ffffff;
+  }
+  .header-banner .tagline {
+    font-size: 9pt;
+    color: #8EC8D8;
+    letter-spacing: 0.3px;
+  }
+
+  /* ---- Meta Bar ---- */
+  .meta-bar {
+    background-color: #F0F5F7;
+    border-bottom: 2px solid #1B3A4B;
+    padding: 10px 28px;
+    margin-bottom: 20px;
+  }
+  .meta-bar table { width: 100%; border-collapse: collapse; }
+  .meta-bar td { padding: 3px 0; font-size: 9pt; vertical-align: top; }
+  .meta-bar .label { color: #6B8899; font-weight: 600; width: 110px; }
+  .meta-bar .value { color: #1B3A4B; }
+  .meta-bar code { background: #E0EAF0; padding: 1px 5px; font-size: 8.5pt; }
+
+  /* ---- Metrics Row ---- */
+  .metrics-row { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+  .metrics-row td {
+    width: 25%;
+    text-align: center;
+    padding: 10px 8px;
+    border: 1px solid #E2E8ED;
+    background: #FAFCFD;
+  }
+  .metric-value { font-size: 16pt; font-weight: 700; color: #1B3A4B; }
+  .metric-label { font-size: 8pt; color: #6B8899; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+
+  /* ---- Section Headers ---- */
+  h2 {
+    font-size: 12pt;
+    font-weight: 700;
+    color: #1B3A4B;
+    border-left: 4px solid #2A9D8F;
+    padding: 4px 0 4px 12px;
+    margin: 22px 0 10px 0;
+    page-break-after: avoid;
+  }
+
+  /* ---- Content Wrapper ---- */
+  .content { padding: 0 28px; }
+
+  /* ---- Executive Summary ---- */
+  .exec-summary {
+    background: #F7FBFC;
+    border: 1px solid #D4E4EB;
+    padding: 14px 18px;
+    margin-bottom: 6px;
+    font-size: 10pt;
+    line-height: 1.6;
+    color: #2c2c2c;
+  }
+
+  /* ---- Figures ---- */
+  .figures-grid { width: 100%; border-collapse: collapse; margin: 6px 0 10px 0; }
+  .figures-grid td {
+    vertical-align: top;
+    padding: 6px;
+    text-align: center;
+    width: 33%;
+  }
+  .fig-card {
+    border: 1px solid #D4E4EB;
+    background: #FAFCFD;
+    padding: 10px 8px 8px 8px;
+  }
+  .fig-card .fig-label {
+    font-size: 7pt;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: #8EAAB8;
+    margin-bottom: 4px;
+  }
+  .fig-card .fig-title {
+    font-size: 9.5pt;
+    font-weight: 700;
+    color: #1B3A4B;
+    margin-bottom: 6px;
+  }
+  .fig-card img {
+    width: 100%;
+    height: auto;
+    border: 1px solid #E2E8ED;
+  }
+  .fig-card .fig-caption {
+    font-size: 8pt;
+    color: #6B8899;
+    line-height: 1.4;
+    margin-top: 6px;
+    text-align: left;
+  }
+
+  /* ---- Finding Cards ---- */
+  .finding-card {
+    border: 1px solid #D4E4EB;
+    margin-bottom: 8px;
+    page-break-inside: avoid;
+  }
+  .finding-card-inner { width: 100%; border-collapse: collapse; }
+  .finding-accent {
+    width: 4px;
+    padding: 0;
+  }
+  .finding-accent-high { background-color: #2A9D8F; }
+  .finding-accent-medium { background-color: #E9C46A; }
+  .finding-accent-low { background-color: #F4A261; }
+  .finding-accent-insufficient { background-color: #E63946; }
+  .finding-body {
+    padding: 10px 14px;
+    vertical-align: top;
+  }
+  .finding-num {
+    font-size: 8pt;
+    font-weight: 700;
+    color: #6B8899;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .finding-agent {
+    font-size: 8pt;
+    color: #8EAAB8;
+  }
+  .finding-text {
+    font-size: 10pt;
+    color: #2c2c2c;
+    line-height: 1.5;
+    margin: 4px 0 8px 0;
+  }
+
+  /* Confidence inline bar */
+  .conf-row { margin-bottom: 4px; }
+  .conf-row table { border-collapse: collapse; }
+  .conf-row td { padding: 0; vertical-align: middle; }
+  .conf-badge {
+    font-size: 7.5pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    padding: 2px 8px;
+    color: #fff;
+    display: inline-block;
+    width: 75px;
+    text-align: center;
+  }
+  .conf-badge-high { background: #2A9D8F; }
+  .conf-badge-medium { background: #E9C46A; color: #5A4B00; }
+  .conf-badge-low { background: #F4A261; color: #5A3300; }
+  .conf-badge-insufficient { background: #E63946; }
+  .conf-track {
+    background: #E8EEF1;
+    height: 8px;
+    width: 160px;
+    display: inline-block;
+    vertical-align: middle;
+    margin: 0 6px;
+  }
+  .conf-fill { height: 8px; display: inline-block; }
+  .conf-fill-high { background: #2A9D8F; }
+  .conf-fill-medium { background: #E9C46A; }
+  .conf-fill-low { background: #F4A261; }
+  .conf-fill-insufficient { background: #E63946; }
+  .conf-pct { font-size: 9pt; font-weight: 700; color: #1B3A4B; }
+
+  .finding-meta {
+    font-size: 8pt;
+    color: #8EAAB8;
+    margin-top: 2px;
+  }
+  .finding-methodology {
+    font-size: 8pt;
+    color: #6B8899;
+    font-style: italic;
+    margin-top: 4px;
+    padding-top: 4px;
+    border-top: 1px solid #ECF1F4;
+  }
+
+  /* ---- Evidence Synthesis ---- */
+  .synth-block {
+    padding: 8px 0 8px 14px;
+    border-left: 3px solid #D4E4EB;
+    margin-bottom: 8px;
+    font-size: 9.5pt;
+    line-height: 1.55;
+  }
+  .synth-block strong { color: #1B3A4B; font-size: 9.5pt; }
+
+  /* ---- Risk Assessment ---- */
+  .risk-table { width: 100%; border-collapse: collapse; margin: 6px 0; }
+  .risk-table td { padding: 8px 12px; font-size: 9.5pt; vertical-align: top; border-bottom: 1px solid #ECF1F4; }
+  .risk-type { font-weight: 700; color: #1B3A4B; width: 130px; white-space: nowrap; }
+
+  /* ---- Data Tables ---- */
+  table.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 6px 0;
+    font-size: 9pt;
+    table-layout: fixed;
+    word-wrap: break-word;
+  }
+  table.data-table th {
+    background: #1B3A4B;
+    color: #fff;
+    padding: 6px 8px;
+    text-align: left;
+    font-size: 8pt;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+  table.data-table td {
+    border-bottom: 1px solid #E2E8ED;
+    padding: 5px 8px;
+    font-size: 9pt;
+    overflow: hidden;
+  }
+  table.data-table tr:nth-child(even) td { background: #F7FBFC; }
+  table.data-table code { font-size: 8pt; background: #E0EAF0; padding: 1px 4px; }
+
+  /* ---- Biosecurity ---- */
+  .biosec-status {
+    padding: 10px 14px;
+    border: 1px solid #D4E4EB;
+    background: #FAFCFD;
+    margin: 6px 0;
+  }
+  .badge {
+    display: inline-block;
+    padding: 3px 12px;
+    font-size: 8pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #fff;
+  }
+  .badge-green { background: #2A9D8F; }
+  .badge-yellow { background: #E9C46A; color: #5A4B00; }
+  .badge-orange { background: #F4A261; color: #5A3300; }
+  .badge-red { background: #E63946; }
+  .biosec-screens { margin-top: 8px; }
+  .biosec-screens td { font-size: 8.5pt; padding: 3px 8px; border-bottom: 1px solid #ECF1F4; }
+  .screen-pass { color: #2A9D8F; font-weight: 600; }
+  .screen-fail { color: #E63946; font-weight: 600; }
+
+  /* ---- Experiments ---- */
+  .exp-table { width: 100%; border-collapse: collapse; margin: 6px 0; }
+  .exp-table td { padding: 6px 10px; font-size: 9pt; vertical-align: top; border-bottom: 1px solid #ECF1F4; }
+  .exp-priority {
+    width: 60px;
+    font-size: 7.5pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    text-align: center;
+    padding-top: 8px;
+  }
+  .priority-high { color: #E63946; }
+  .priority-medium { color: #D4870F; }
+  .priority-low { color: #457B9D; }
+  .priority-critical { color: #8B0000; }
+  .exp-name { font-weight: 600; color: #1B3A4B; }
+  .exp-rationale { font-size: 8pt; color: #6B8899; margin-top: 2px; }
+
+  /* ---- Limitations ---- */
+  .limitations-list { padding-left: 18px; margin: 4px 0; }
+  .limitations-list li {
+    font-size: 9.5pt;
+    color: #4A5568;
+    margin-bottom: 4px;
+    line-height: 1.5;
+  }
+
+  /* ---- HITL ---- */
+  .hitl-box {
+    background: #FFF8F0;
+    border: 1px solid #F4D9B0;
+    border-left: 4px solid #E9C46A;
+    padding: 12px 16px;
+    font-size: 9.5pt;
+    line-height: 1.55;
+    margin: 6px 0;
+  }
+
+  /* ---- Provenance ---- */
+
+  /* ---- Footer ---- */
+  .footer-bar {
+    background: #F0F5F7;
+    border-top: 2px solid #1B3A4B;
+    padding: 10px 28px;
+    margin-top: 24px;
+    text-align: center;
+    font-size: 8pt;
+    color: #6B8899;
+  }
+
+  /* ---- Utility ---- */
+  p { margin: 0 0 6px 0; }
+  .spacer { height: 8px; }
+  .page-break { page-break-before: always; }
+</style>
+</head>
+<body>
+
+<!-- ============================================================ -->
+<!-- HEADER BANNER                                                 -->
+<!-- ============================================================ -->
+<div class="header-banner">
+  <h1>Lumi Virtual Lab</h1>
+  <div class="tagline">YOHAS Pipeline &mdash; Confidence-Aware Research Report</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- META BAR                                                      -->
+<!-- ============================================================ -->
+<div class="meta-bar">
+  <table>
+    <tr>
+      <td class="label">Query ID</td>
+      <td class="value"><code>{{ report.query_id }}</code></td>
+      <td class="label" style="width:80px;">Generated</td>
+      <td class="value">{{ generated_at }}</td>
+    </tr>
+    <tr>
+      <td class="label">Research Query</td>
+      <td class="value" colspan="3">{{ report.user_query }}</td>
+    </tr>
+  </table>
+</div>
+
+<div class="content">
+
+<!-- ============================================================ -->
+<!-- METRICS ROW                                                   -->
+<!-- ============================================================ -->
+<table class="metrics-row">
+  <tr>
+    <td>
+      <div class="metric-value">{{ report.key_findings|length }}</div>
+      <div class="metric-label">Key Findings</div>
+    </td>
+    <td>
+      <div class="metric-value">{{ report.provenance_chain|length }}</div>
+      <div class="metric-label">Evidence Sources</div>
+    </td>
+    <td>
+      <div class="metric-value">${{ "%.2f"|format(report.total_cost) }}</div>
+      <div class="metric-label">Total Cost</div>
+    </td>
+    <td>
+      <div class="metric-value">{{ "%.0f"|format(report.total_duration_seconds) }}s</div>
+      <div class="metric-label">Duration</div>
+    </td>
+  </tr>
+</table>
+
+<!-- ============================================================ -->
+<!-- EXECUTIVE SUMMARY                                             -->
+<!-- ============================================================ -->
+{% if report.executive_summary %}
+<h2>Executive Summary</h2>
+<div class="exec-summary">{{ report.executive_summary }}</div>
+{% endif %}
+
+<!-- ============================================================ -->
+<!-- VISUAL CONTEXT (FIGURES)                                      -->
+<!-- ============================================================ -->
+{% if figures %}
+<h2>Visual Context</h2>
+<table class="figures-grid">
+{% for row in figures|batch(3) %}
+<tr>
+{% for fig in row %}
+<td>
+  <div class="fig-card">
+    <div class="fig-label">{{ fig.type_label }}</div>
+    <div class="fig-title">{{ fig.title }}</div>
+    <img src="{{ figure_data.get(fig.embed_key, '') }}" alt="{{ fig.title }}">
+    <div class="fig-caption">{{ fig.caption }}</div>
+  </div>
+</td>
+{% endfor %}
+{% for _ in range(3 - row|length) %}<td></td>{% endfor %}
+</tr>
+{% endfor %}
+</table>
+{% endif %}
+
+<!-- ============================================================ -->
+<!-- KEY FINDINGS                                                  -->
+<!-- ============================================================ -->
+{% if report.key_findings %}
+<h2>Key Findings</h2>
+{% for claim in report.key_findings %}
+<div class="finding-card">
+  <table class="finding-card-inner">
+    <tr>
+      <td class="finding-accent finding-accent-{{ claim.confidence.level.value|lower }}"></td>
+      <td class="finding-body">
+        <span class="finding-num">Finding {{ loop.index }}</span>
+        <span class="finding-agent">&nbsp;&mdash;&nbsp;{{ claim.agent_id }}</span>
+        <div class="finding-text">{{ claim.claim_text }}</div>
+
+        <div class="conf-row">
+          <table><tr>
+            <td><span class="conf-badge conf-badge-{{ claim.confidence.level.value|lower }}">{{ claim.confidence.level.value }}</span></td>
+            <td style="padding: 0 6px;">
+              <span class="conf-track">
+                <span class="conf-fill conf-fill-{{ claim.confidence.level.value|lower }}" style="width: {{ (claim.confidence.score * 100)|int }}%;"></span>
+              </span>
+            </td>
+            <td><span class="conf-pct">{{ "%.0f"|format(claim.confidence.score * 100) }}%</span></td>
+          </tr></table>
+        </div>
+
+        <div class="finding-meta">
+          {{ claim.supporting_evidence|length }} supporting
+          {% if claim.contradicting_evidence|length > 0 %} &bull; {{ claim.contradicting_evidence|length }} contradicting{% endif %}
+          {% if claim.confidence.independent_replication is not none %} &bull; {{ claim.confidence.independent_replication }} independent replications{% endif %}
+          {% if claim.confidence.evidence_convergence is not none %} &bull; convergence {{ "%.0f"|format(claim.confidence.evidence_convergence * 100) }}%{% endif %}
+        </div>
+
+        {% if claim.confidence.caveats %}
+        <div class="finding-meta" style="color: #C07000;">
+          Caveats: {{ claim.confidence.caveats|join("; ") }}
+        </div>
+        {% endif %}
+
+        {% if claim.methodology %}
+        <div class="finding-methodology">{{ claim.methodology }}</div>
+        {% endif %}
+      </td>
+    </tr>
+  </table>
+</div>
+{% endfor %}
+{% endif %}
+
+<!-- ============================================================ -->
+<!-- EVIDENCE SYNTHESIS                                            -->
+<!-- ============================================================ -->
+{% if report.evidence_synthesis %}
+<h2>Evidence Synthesis</h2>
+{% for domain, content in report.evidence_synthesis.items() %}
+<div class="synth-block">
+  <strong>{{ domain|replace("_", " ")|title }}</strong><br>
+  {{ content }}
+</div>
+{% endfor %}
+{% endif %}
+
+<!-- ============================================================ -->
+<!-- RISK ASSESSMENT                                               -->
+<!-- ============================================================ -->
+{% if report.risk_assessment %}
+<h2>Risk Assessment</h2>
+<table class="risk-table">
+{% for risk_type, description in report.risk_assessment.items() %}
+<tr>
+  <td class="risk-type">{{ risk_type|replace("_", " ")|title }}</td>
+  <td>{{ description }}</td>
+</tr>
+{% endfor %}
+</table>
+{% endif %}
+
+<!-- ============================================================ -->
+<!-- MOLECULAR DESIGN CANDIDATES                                   -->
+<!-- ============================================================ -->
+{% if report.molecular_design_candidates %}
+<h2>Molecular Design Candidates</h2>
+<table class="data-table">
+<tr>
+{% for key in report.molecular_design_candidates[0].keys() %}
+<th>{{ key|replace("_", " ")|title }}</th>
+{% endfor %}
+</tr>
+{% for mol in report.molecular_design_candidates %}
+<tr>
+{% for val in mol.values() %}
+<td>{{ val }}</td>
+{% endfor %}
+</tr>
+{% endfor %}
+</table>
+{% endif %}
+
+<!-- ============================================================ -->
+<!-- BIOSECURITY CLEARANCE                                         -->
+<!-- ============================================================ -->
+{% if report.biosecurity_clearance %}
+<h2>Biosecurity Clearance</h2>
+<div class="biosec-status">
+  <span style="font-size:9pt; font-weight:600; color:#1B3A4B;">Status:</span>
+  <span class="badge badge-{{ report.biosecurity_clearance.category.value|lower }}">{{ report.biosecurity_clearance.category.value }}</span>
+  {% if report.biosecurity_clearance.veto %}
+  <span style="color:#E63946; font-weight:700; margin-left:10px;">VETOED</span>
+  {% endif %}
+  <span style="font-size:8pt; color:#6B8899; margin-left:10px;">Audit: {{ report.biosecurity_clearance.audit_id }}</span>
+
+  {% if report.biosecurity_clearance.agent_results %}
+  <table class="biosec-screens" style="width:100%; border-collapse:collapse; margin-top:8px;">
+  {% for screen in report.biosecurity_clearance.agent_results %}
+  <tr>
+    <td style="width:180px; font-weight:600;">{{ screen.screen_name }}</td>
+    <td style="width:50px;" class="{{ 'screen-pass' if screen.passed else 'screen-fail' }}">{{ "PASS" if screen.passed else "FAIL" }}</td>
+    <td>{{ screen.details }}</td>
+  </tr>
+  {% endfor %}
+  </table>
+  {% endif %}
+
+  {% if report.biosecurity_clearance.veto_reasons %}
+  <div style="margin-top:8px; color:#E63946; font-size:9pt;">
+    <strong>Veto reasons:</strong>
+    <ul style="margin:2px 0; padding-left:16px;">
+    {% for reason in report.biosecurity_clearance.veto_reasons %}
+      <li>{{ reason }}</li>
+    {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+<!-- ============================================================ -->
+<!-- RECOMMENDED EXPERIMENTS                                       -->
+<!-- ============================================================ -->
+{% if report.recommended_experiments %}
+<h2>Recommended Experiments</h2>
+<table class="exp-table">
+{% for exp in report.recommended_experiments %}
+<tr>
+  <td class="exp-priority priority-{{ exp.get('priority', 'MEDIUM')|lower }}">{{ exp.get("priority", "MEDIUM") }}</td>
+  <td>
+    <div class="exp-name">{{ exp.get("experiment", exp.get("title", "")) }}</div>
+    {% if exp.get("rationale") %}
+    <div class="exp-rationale">{{ exp.get("rationale") }}</div>
+    {% endif %}
+  </td>
+</tr>
+{% endfor %}
+</table>
+{% endif %}
+
+<!-- ============================================================ -->
+<!-- LIMITATIONS                                                   -->
+<!-- ============================================================ -->
+{% if report.limitations %}
+<h2>Limitations</h2>
+<ul class="limitations-list">
+{% for lim in report.limitations %}
+<li>{{ lim }}</li>
+{% endfor %}
+</ul>
+{% endif %}
+
+<!-- ============================================================ -->
+<!-- PROVENANCE CHAIN                                              -->
+<!-- ============================================================ -->
+{% if report.provenance_chain %}
+<h2>Provenance Chain</h2>
+<table class="data-table">
+<tr>
+  <th style="width:120px;">Source</th>
+  <th style="width:160px;">Identifier</th>
+  <th style="width:120px;">Accessed</th>
+  <th>Version</th>
+</tr>
+{% for ev in report.provenance_chain %}
+<tr>
+  <td>{{ ev.source_db }}</td>
+  <td><code>{{ ev.source_id }}</code></td>
+  <td>{{ ev.access_date.strftime("%Y-%m-%d") if ev.access_date else "" }}</td>
+  <td>{{ ev.data_version or "—" }}</td>
+</tr>
+{% endfor %}
+</table>
+{% endif %}
+
+<!-- ============================================================ -->
+<!-- HITL SUMMARY                                                  -->
+<!-- ============================================================ -->
+{% if report.hitl_summary %}
+<h2>Human-in-the-Loop Review</h2>
+<div class="hitl-box">{{ report.hitl_summary }}</div>
+{% endif %}
+
+</div><!-- /.content -->
+
+<!-- ============================================================ -->
+<!-- FOOTER                                                        -->
+<!-- ============================================================ -->
+<div class="footer-bar">
+  Generated by <strong>Lumi Virtual Lab</strong> &mdash; YOHAS Pipeline v0.1 &mdash; {{ generated_at }}<br>
+  Total cost: ${{ "%.2f"|format(report.total_cost) }} &bull; Duration: {{ "%.0f"|format(report.total_duration_seconds) }}s &bull; {{ report.provenance_chain|length }} evidence sources
+</div>
+
+</body>
+</html>

@@ -36,9 +36,10 @@ data/reference/*.tsv
 .DS_Store
 
 # Reports / artifacts
-reports/
+/reports/
 *.pdf
 *.html
+!src/reports/templates/*.html
 
 # Node / Next.js
 node_modules/
