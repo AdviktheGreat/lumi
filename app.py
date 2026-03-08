@@ -447,6 +447,7 @@ def init_session_state() -> None:
         "mock_divisions": None,
         "mock_plan": None,
         "mock_debate": None,
+        "hitl_reviews": {},
     }
     for key, val in defaults.items():
         if key not in st.session_state:
@@ -790,6 +791,84 @@ def render_monitor_tab() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Tab 4: Expert Review (#2)
+# ---------------------------------------------------------------------------
+
+def render_expert_review_tab() -> None:
+    """Human-in-the-loop review queue for low-confidence findings."""
+    # TODO: Wire to HITL routing system (#2)
+    st.header("Human-in-the-Loop Review Queue")
+
+    report: FinalReport | None = st.session_state.mock_report
+    if report is None:
+        st.info("No findings to review. Submit a query first.")
+        return
+
+    # Collect flagged findings (confidence < 0.5)
+    flagged = [
+        (i, claim) for i, claim in enumerate(report.key_findings)
+        if claim.confidence.score < 0.5
+    ]
+
+    # Summary metrics
+    reviewed = sum(1 for k in flagged if f"review_{k[0]}" in st.session_state.hitl_reviews)
+    metric_cols = st.columns(3)
+    with metric_cols[0]:
+        st.metric("Flagged", len(flagged))
+    with metric_cols[1]:
+        st.metric("Pending", len(flagged) - reviewed)
+    with metric_cols[2]:
+        st.metric("Reviewed", reviewed)
+
+    if not flagged:
+        st.success("All findings meet the confidence threshold. No expert review needed.")
+        return
+
+    st.divider()
+
+    for idx, claim in flagged:
+        review_key = f"review_{idx}"
+        with st.container(border=True):
+            st.markdown(f"**Flagged Finding** (from `{claim.agent_id}`)")
+            st.markdown(claim.claim_text)
+
+            flag_cols = st.columns([1, 2])
+            with flag_cols[0]:
+                st.markdown(confidence_badge(claim.confidence.level))
+                st.caption(f"Score: {claim.confidence.score:.0%}")
+            with flag_cols[1]:
+                st.caption(f"Reason: Confidence below 50% threshold")
+
+            # Expert feedback form
+            feedback = st.text_area(
+                "Expert feedback",
+                key=f"feedback_{idx}",
+                placeholder="Provide your assessment of this finding...",
+                height=80,
+            )
+
+            btn_cols = st.columns(3)
+            with btn_cols[0]:
+                if st.button("Approve", key=f"approve_{idx}", type="primary"):
+                    st.session_state.hitl_reviews[review_key] = {"verdict": "approved", "feedback": feedback}
+            with btn_cols[1]:
+                if st.button("Reject", key=f"reject_{idx}"):
+                    st.session_state.hitl_reviews[review_key] = {"verdict": "rejected", "feedback": feedback}
+            with btn_cols[2]:
+                if st.button("Request More Evidence", key=f"more_{idx}"):
+                    st.session_state.hitl_reviews[review_key] = {"verdict": "needs_evidence", "feedback": feedback}
+
+            # Show existing review
+            if review_key in st.session_state.hitl_reviews:
+                review = st.session_state.hitl_reviews[review_key]
+                verdict_colors = {"approved": "green", "rejected": "red", "needs_evidence": "orange"}
+                color = verdict_colors.get(review["verdict"], "gray")
+                st.markdown(f":{color}[Reviewed: **{review['verdict'].upper()}**]")
+                if review["feedback"]:
+                    st.caption(f"Feedback: {review['feedback']}")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -803,8 +882,8 @@ def main() -> None:
     init_session_state()
     render_sidebar()
 
-    tab_submit, tab_results, tab_monitor = st.tabs(
-        ["Submit Query", "Results", "Agent Monitor"]
+    tab_submit, tab_results, tab_review, tab_monitor = st.tabs(
+        ["Submit Query", "Results", "Expert Review", "Agent Monitor"]
     )
 
     with tab_submit:
@@ -812,6 +891,9 @@ def main() -> None:
 
     with tab_results:
         render_results_tab()
+
+    with tab_review:
+        render_expert_review_tab()
 
     with tab_monitor:
         render_monitor_tab()
