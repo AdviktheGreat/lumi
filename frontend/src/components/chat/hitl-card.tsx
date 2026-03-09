@@ -1,13 +1,14 @@
 import type { HitlRequest } from "@/lib/types";
-import { ExternalLink } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import clsx from "clsx";
 
 interface Props {
   hitl: HitlRequest;
   reviewUrl?: string;
+  onReview?: () => void;
 }
 
-export function HitlCard({ hitl, reviewUrl }: Props) {
+export function HitlCard({ hitl, reviewUrl, onReview }: Props) {
   const isPending = hitl.status === "pending";
   const isApproved = hitl.status === "approved";
 
@@ -59,16 +60,14 @@ export function HitlCard({ hitl, reviewUrl }: Props) {
       {/* Pending — review button + routing indicator */}
       {isPending && (
         <div className="mt-2.5 flex items-center gap-3">
-          {reviewUrl && (
-            <a
-              href={reviewUrl}
-              target="_blank"
-              rel="noopener noreferrer"
+          {(reviewUrl || onReview) && (
+            <button
+              onClick={onReview}
               className="flex items-center gap-1.5 rounded-md bg-[var(--orange)] px-3 py-1.5 text-[11px] font-semibold text-white transition-all hover:brightness-110 active:scale-95"
             >
-              <ExternalLink size={12} />
+              <ArrowRight size={12} />
               View Review
-            </a>
+            </button>
           )}
           <span className="flex items-center gap-2">
             <span className="flex items-center gap-1">

@@ -13,6 +13,8 @@ import { IntegrationCard } from "@/components/chat/integration-card";
 import { AgentsPanel } from "@/components/panels/agents-panel";
 import { PlanPanel } from "@/components/panels/plan-panel";
 import { ToolsPanel } from "@/components/panels/tools-panel";
+import { ReviewPanel } from "@/components/panels/review-panel";
+import type { ReviewData } from "@/components/panels/review-panel";
 import { Send, PanelRightOpen, PanelRightClose, FlaskConical, Settings, User, ChevronRight } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -41,6 +43,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
   const [toolsOpen, setToolsOpen] = useState(true);
   const [clarifyQuestions, setClarifyQuestions] = useState<ClarifyQuestion[] | null>(null);
   const [pendingQuery, setPendingQuery] = useState<string | null>(null);
+  const [activeReview, setActiveReview] = useState<ReviewData | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -106,6 +109,16 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
           break;
         case "hitl_flag": {
           setLiveEvents((prev) => [...prev, { kind: "hitl_flag", hitl: event.hitl }]);
+          // Auto-open review panel in sidebar
+          setActiveReview({
+            finding: event.hitl.finding,
+            agent: event.hitl.agent_id,
+            confidence: event.hitl.confidence_score ?? 0,
+            reason: event.hitl.reason,
+            findingId: event.hitl.finding_id || "review_001",
+            chatId,
+          });
+          setRightOpen(true);
           break;
         }
         case "hitl_resolved":
@@ -307,23 +320,23 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                 {/* HITL events */}
                 {liveHitlEvents.length > 0 && (
                   <div className="space-y-2">
-                    {liveHitlEvents.map((e, i) => {
-                      const params = new URLSearchParams({
-                        finding: e.hitl.finding,
-                        agent: e.hitl.agent_id,
-                        confidence: String(e.hitl.confidence_score),
-                        reason: e.hitl.reason,
-                        finding_id: e.hitl.finding_id || "review_001",
-                        chat_id: chatId,
-                      });
-                      return (
-                        <HitlCard
-                          key={`h-${i}`}
-                          hitl={e.hitl}
-                          reviewUrl={e.hitl.status === "pending" ? `/review?${params.toString()}` : undefined}
-                        />
-                      );
-                    })}
+                    {liveHitlEvents.map((e, i) => (
+                      <HitlCard
+                        key={`h-${i}`}
+                        hitl={e.hitl}
+                        onReview={e.hitl.status === "pending" ? () => {
+                          setActiveReview({
+                            finding: e.hitl.finding,
+                            agent: e.hitl.agent_id,
+                            confidence: e.hitl.confidence_score ?? 0,
+                            reason: e.hitl.reason,
+                            findingId: e.hitl.finding_id || "review_001",
+                            chatId,
+                          });
+                          setRightOpen(true);
+                        } : undefined}
+                      />
+                    ))}
                   </div>
                 )}
 
@@ -394,60 +407,66 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
           rightOpen ? "w-80 opacity-100" : "w-0 opacity-0 border-l-0"
         )}
       >
-        <div className="w-80 flex flex-col h-full overflow-y-auto">
-          {/* Pipeline */}
-          <div className="border-b border-[var(--border)]">
-            <button
-              onClick={() => setPipelineOpen(!pipelineOpen)}
-              className="flex w-full items-center gap-1.5 p-4 pb-2 text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
-            >
-              <ChevronRight size={12} className={clsx("transition-transform duration-200", pipelineOpen && "rotate-90")} />
-              Pipeline
-            </button>
-            <div className={clsx("grid transition-[grid-template-rows] duration-200 ease-out", pipelineOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
-              <div className="overflow-hidden">
-                <div className="px-4 pb-4 pt-1">
-                  <PlanPanel liveTraces={liveTracesFromEvents} streaming={streaming} />
+        <div className="w-80 flex flex-col h-full">
+          {activeReview ? (
+            <ReviewPanel review={activeReview} onClose={() => setActiveReview(null)} />
+          ) : (
+            <div className="flex-1 overflow-y-auto">
+              {/* Pipeline */}
+              <div className="border-b border-[var(--border)]">
+                <button
+                  onClick={() => setPipelineOpen(!pipelineOpen)}
+                  className="flex w-full items-center gap-1.5 p-4 pb-2 text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+                >
+                  <ChevronRight size={12} className={clsx("transition-transform duration-200", pipelineOpen && "rotate-90")} />
+                  Pipeline
+                </button>
+                <div className={clsx("grid transition-[grid-template-rows] duration-200 ease-out", pipelineOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
+                  <div className="overflow-hidden">
+                    <div className="px-4 pb-4 pt-1">
+                      <PlanPanel liveTraces={liveTracesFromEvents} streaming={streaming} />
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-          </div>
 
-          {/* Agents */}
-          <div className="border-b border-[var(--border)]">
-            <button
-              onClick={() => setAgentsOpen(!agentsOpen)}
-              className="flex w-full items-center gap-1.5 p-4 pb-2 text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
-            >
-              <ChevronRight size={12} className={clsx("transition-transform duration-200", agentsOpen && "rotate-90")} />
-              Agents
-            </button>
-            <div className={clsx("grid transition-[grid-template-rows] duration-200 ease-out", agentsOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
-              <div className="overflow-hidden">
-                <div className="px-4 pb-4 pt-1">
-                  <AgentsPanel sublab={chat.sublab} liveTraces={liveTracesFromEvents} />
+              {/* Agents */}
+              <div className="border-b border-[var(--border)]">
+                <button
+                  onClick={() => setAgentsOpen(!agentsOpen)}
+                  className="flex w-full items-center gap-1.5 p-4 pb-2 text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+                >
+                  <ChevronRight size={12} className={clsx("transition-transform duration-200", agentsOpen && "rotate-90")} />
+                  Agents
+                </button>
+                <div className={clsx("grid transition-[grid-template-rows] duration-200 ease-out", agentsOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
+                  <div className="overflow-hidden">
+                    <div className="px-4 pb-4 pt-1">
+                      <AgentsPanel sublab={chat.sublab} liveTraces={liveTracesFromEvents} />
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-          </div>
 
-          {/* Tools */}
-          <div>
-            <button
-              onClick={() => setToolsOpen(!toolsOpen)}
-              className="flex w-full items-center gap-1.5 p-4 pb-2 text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
-            >
-              <ChevronRight size={12} className={clsx("transition-transform duration-200", toolsOpen && "rotate-90")} />
-              Tools
-            </button>
-            <div className={clsx("grid transition-[grid-template-rows] duration-200 ease-out", toolsOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
-              <div className="overflow-hidden">
-                <div className="px-4 pb-4 pt-1">
-                  <ToolsPanel />
+              {/* Tools */}
+              <div>
+                <button
+                  onClick={() => setToolsOpen(!toolsOpen)}
+                  className="flex w-full items-center gap-1.5 p-4 pb-2 text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+                >
+                  <ChevronRight size={12} className={clsx("transition-transform duration-200", toolsOpen && "rotate-90")} />
+                  Tools
+                </button>
+                <div className={clsx("grid transition-[grid-template-rows] duration-200 ease-out", toolsOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
+                  <div className="overflow-hidden">
+                    <div className="px-4 pb-4 pt-1">
+                      <ToolsPanel />
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
       </aside>
     </div>
