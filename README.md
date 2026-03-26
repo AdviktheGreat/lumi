@@ -1,4 +1,5 @@
-# Lumi
+## Co-Built this with Darsh Shrivastava. Had help from Robert Ji and Anish Nambirajan.
+# Lumi (early prototype of agentic architecture, YOHAS)
 
 Multi-agent virtual lab for drug discovery. A 9-phase orchestration pipeline coordinates specialist AI agents across biology, chemistry, and clinical domains to produce confidence-scored findings with biosecurity veto gates, adversarial review, and human-in-the-loop routing.
 
